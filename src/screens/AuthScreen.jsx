@@ -66,7 +66,25 @@ export default function AuthScreen() {
         navigate('setup');
       } catch (e) {
         console.error(e);
-        setMsg('เกิดข้อผิดพลาด — กรุณารีเฟรชหน้าเว็บ');
+        const msg = e?.message || '';
+        if (msg.includes('not in LIFF') || msg.includes('endpoint') || msg.includes('liffId')) {
+          setMsg('⚠️ LIFF URL ไม่ถูกต้อง');
+          Swal.fire({
+            icon: 'warning',
+            title: 'ตั้งค่า LIFF URL ไม่ถูกต้อง',
+            html: `กรุณาไปที่ LINE Developer Console<br>แล้วตั้งค่า <b>Endpoint URL</b> ของ LIFF เป็น<br><code style="font-size:11px">${location.origin}${location.pathname}</code>`,
+            allowOutsideClick: false,
+          });
+        } else {
+          setMsg('เกิดข้อผิดพลาด — กรุณารีเฟรชหน้าเว็บ');
+          Swal.fire({
+            icon: 'error',
+            title: 'เกิดข้อผิดพลาด',
+            text: msg || 'ไม่สามารถเชื่อมต่อ LINE LIFF ได้',
+            footer: '<small>กรุณาเปิดผ่าน LINE App หรือตรวจสอบ LIFF Endpoint URL</small>',
+            allowOutsideClick: false,
+          });
+        }
       }
     }
 
