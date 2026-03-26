@@ -1,0 +1,58 @@
+import { useEffect } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
+import AuthScreen          from './screens/AuthScreen';
+import RegisterScreen      from './screens/RegisterScreen';
+import SetupScreen         from './screens/SetupScreen';
+import SubjectScreen       from './screens/SubjectScreen';
+import QuizScreen          from './screens/QuizScreen';
+import ScoreScreen         from './screens/ScoreScreen';
+import ReviewScreen        from './screens/ReviewScreen';
+import HistoryScreen       from './screens/HistoryScreen';
+import HistoryDetailScreen from './screens/HistoryDetailScreen';
+import Spinner             from './components/Spinner';
+
+function Router() {
+  const { screen } = useApp();
+
+  const screenMap = {
+    auth:          <AuthScreen />,
+    register:      <RegisterScreen />,
+    setup:         <SetupScreen />,
+    subject:       <SubjectScreen />,
+    'loading-quiz':<Spinner label="กำลังโหลดข้อสอบ..." />,
+    quiz:          <QuizScreen />,
+    score:         <ScoreScreen />,
+    review:        <ReviewScreen />,
+    history:       <HistoryScreen />,
+    historyDetail: <HistoryDetailScreen />,
+  };
+
+  return screenMap[screen] ?? <AuthScreen />;
+}
+
+function AppShell() {
+  const { theme } = useApp();
+
+  useEffect(() => {
+    document.body.className = theme || '';
+  }, [theme]);
+
+  return (
+    <div style={{ background: 'var(--bg)', minHeight: '100vh' }} className="py-6 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <Router />
+        <footer className="text-center mt-8 text-xs" style={{ color: 'var(--text-muted)' }}>
+          © 2025 ระบบข้อสอบออนไลน์
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppProvider>
+      <AppShell />
+    </AppProvider>
+  );
+}
