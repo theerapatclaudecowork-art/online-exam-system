@@ -62,8 +62,9 @@ function route(action, params, body) {
       case 'addQuestion':      return json(addQuestion(body));
       case 'updateQuestion':   return json(updateQuestion(body));
       case 'deleteQuestion':      return json(deleteQuestion(body));
-      case 'getLineProfile':      return json(getLineProfile(params.userId, params.callerUserId));
-      case 'syncAllLineProfiles': return json(syncAllLineProfiles(params.userId));
+      case 'getLineProfile':         return json(getLineProfile(params.userId, params.callerUserId));
+      case 'syncAllLineProfiles':    return json(syncAllLineProfiles(params.userId));
+      case 'getMembersWithProfiles': return json(getMembersWithProfiles(params.userId));
       default:                    return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -607,6 +608,62 @@ function syncAllLineProfiles(callerUserId) {
     profiles:     updated,
     failed,
   };
+}
+
+// ดึง Members พร้อม LINE Profile ทุกคนใน 1 call (ไม่บันทึก Sheets)
+function getMembersWithProfiles(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: true, members: [] };
+
+  const rows = sheet.getDataRange().getValues();
+  const members = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const uid = String(rows[i][0] || '').trim();
+    if (!uid) continue;
+
+    // ข้อมูลจาก Sheets
+    const member = {
+      lineUserId:  uid,
+      displayName: String(rows[i][1] || ''),
+      status:      String(rows[i][2] || ''),
+      fullName:    String(rows[i][3] || ''),
+      email:       String(rows[i][4] || ''),
+      phone:       String(rows[i][5] || ''),
+      studentId:   String(rows[i][6] || ''),
+      pictureUrl:  String(rows[i][7] || ''),
+      joinDate:    formatDate(rows[i][8]),
+      role:        String(rows[i][9] || ''),
+      // LINE live data (จะถูก fill ด้านล่าง)
+      lineDisplayName:   '',
+      linePictureUrl:    '',
+      lineStatusMessage: '',
+      lineLanguage:      '',
+      lineFound:         false,
+    };
+
+    // เรียก LINE API ดึงโปรไฟล์ล่าสุด
+    const lp = fetchLineProfile(uid);
+    if (lp) {
+      member.lineDisplayName   = lp.displayName   || '';
+      member.linePictureUrl    = lp.pictureUrl    || '';
+      member.lineStatusMessage = lp.statusMessage || '';
+      member.lineLanguage      = lp.language      || '';
+      member.lineFound         = true;
+
+      // ถ้า LINE มีรูปและ Sheets ยังไม่มี ให้อัปเดต Sheets ด้วย
+      if (lp.pictureUrl && !rows[i][7]) {
+        sheet.getRange(i + 1, 8).setValue(lp.pictureUrl);
+      }
+    }
+
+    members.push(member);
+    Utilities.sleep(80); // rate limit buffer
+  }
+
+  return { success: true, members };
 }
 
 // ─────────────────────────────────────────

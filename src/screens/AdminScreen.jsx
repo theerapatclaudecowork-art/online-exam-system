@@ -18,9 +18,10 @@ export default function AdminScreen() {
   const [results, setResults] = useState([]);
   const [resultTotal, setResultTotal] = useState(0);
   const [resultPage, setResultPage]   = useState(0);
-  const [loading, setLoading]   = useState(false);
-  const [syncing, setSyncing]   = useState(false);
-  const [lineProfiles, setLineProfiles] = useState({}); // { userId: { displayName, pictureUrl, statusMessage } }
+  const [loading, setLoading]         = useState(false);
+  const [syncing, setSyncing]         = useState(false);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [lineProfiles, setLineProfiles] = useState({});
   const [memberFilter, setMemberFilter] = useState('');
   const [resultSearch, setResultSearch] = useState('');
 
@@ -33,6 +34,7 @@ export default function AdminScreen() {
     } catch (e) {}
   }
 
+  // โหลด members จาก Sheets ก่อน (เร็ว) แล้วโหลด LINE profiles ทีหลัง (ช้ากว่า)
   async function loadMembers() {
     setLoading(true);
     try {
@@ -40,6 +42,37 @@ export default function AdminScreen() {
       if (data.success) setMembers(data.members || []);
     } catch (e) {}
     finally { setLoading(false); }
+    // โหลด LINE profiles ใน background
+    loadLineProfiles();
+  }
+
+  // เรียก getMembersWithProfiles เพื่อดึงรูป+ข้อมูล LINE ทุกคนทีเดียว
+  async function loadLineProfiles() {
+    setProfilesLoading(true);
+    try {
+      const data = await apiGet('getMembersWithProfiles', { userId: profile.userId });
+      if (!data.success) return;
+      const map = {};
+      const updatedMembers = [];
+      (data.members || []).forEach(m => {
+        map[m.lineUserId] = {
+          displayName:   m.lineDisplayName,
+          pictureUrl:    m.linePictureUrl,
+          statusMessage: m.lineStatusMessage,
+          language:      m.lineLanguage,
+          found:         m.lineFound,
+        };
+        updatedMembers.push({
+          ...m,
+          // ถ้า LINE มีรูปให้ใช้แทน
+          pictureUrl:  m.linePictureUrl  || m.pictureUrl,
+          displayName: m.lineDisplayName || m.displayName,
+        });
+      });
+      setLineProfiles(map);
+      setMembers(updatedMembers);
+    } catch (e) {}
+    finally { setProfilesLoading(false); }
   }
 
   async function loadResults(page = 0) {
@@ -254,65 +287,103 @@ export default function AdminScreen() {
             </button>
           </div>
 
+          {/* แถบแสดงสถานะโหลด LINE profiles */}
+          {profilesLoading && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-3 text-xs"
+              style={{ background: '#e8f5e9', color: '#2e7d32' }}>
+              <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              กำลังโหลดรูปโปรไฟล์จาก LINE...
+            </div>
+          )}
+
           {loading ? <Spinner label="กำลังโหลด..." /> : (
             <div className="space-y-3 mb-4">
               {filteredMembers.length === 0 ? (
                 <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>ไม่มีสมาชิก</div>
               ) : filteredMembers.map(m => {
-                const st = STATUS_LABEL[m.status] || STATUS_LABEL.inactive;
-                const lp = lineProfiles[m.lineUserId]; // LINE real-time profile
-                const pic = lp?.pictureUrl || m.pictureUrl;
-                const name = lp?.displayName || m.displayName;
+                const st  = STATUS_LABEL[m.status] || STATUS_LABEL.inactive;
+                const lp  = lineProfiles[m.lineUserId];
+                const pic = m.pictureUrl || lp?.pictureUrl || '';
+                const lineName = lp?.displayName || m.displayName;
 
                 return (
-                  <div key={m.lineUserId} className="quiz-card rounded-xl p-4" style={{ cursor: 'default' }}>
+                  <div key={m.lineUserId} className="quiz-card rounded-xl p-3 sm:p-4" style={{ cursor: 'default' }}>
 
-                    {/* Profile row */}
-                    <div className="flex items-center gap-3 mb-2">
+                    {/* Profile row — รูปใหญ่ + ข้อมูล */}
+                    <div className="flex items-center gap-3 mb-3">
+
+                      {/* รูปโปรไฟล์จาก LINE */}
                       <div className="relative flex-shrink-0">
-                        {pic
-                          ? <img src={pic} alt="" className="w-10 h-10 rounded-full object-cover" />
-                          : <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg" style={{ background: 'var(--input-bg)' }}>👤</div>
-                        }
-                        {lp && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white" title="ข้อมูลล่าสุดจาก LINE" />}
+                        {pic ? (
+                          <img
+                            src={pic}
+                            alt={lineName}
+                            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover shadow-md"
+                            onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}
+                          />
+                        ) : null}
+                        <div
+                          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full items-center justify-center text-2xl shadow-md"
+                          style={{ background: 'var(--input-bg)', display: pic ? 'none' : 'flex' }}
+                        >👤</div>
+
+                        {/* สถานะ online indicator */}
+                        <span
+                          className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white"
+                          style={{ background: lp?.found ? '#06C755' : (profilesLoading ? '#d97706' : '#94a3b8') }}
+                          title={lp?.found ? 'พบใน LINE' : (profilesLoading ? 'กำลังโหลด...' : 'ไม่พบใน LINE')}
+                        />
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>{m.fullName || name}</span>
-                          {m.role === 'admin' && <span className="text-xs px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: '#fef9c3', color: '#854d0e' }}>👑 Admin</span>}
+                        {/* ชื่อจริง */}
+                        <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                          <span className="font-bold text-sm sm:text-base truncate" style={{ color: 'var(--text)' }}>
+                            {m.fullName || lineName}
+                          </span>
+                          {m.role === 'admin' && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: '#fef9c3', color: '#854d0e' }}>👑 Admin</span>
+                          )}
                         </div>
-                        {/* ชื่อ LINE จริง (ถ้าต่างจากชื่อเต็ม) */}
-                        {lp?.displayName && lp.displayName !== m.fullName && (
-                          <div className="text-xs flex items-center gap-1 mb-0.5" style={{ color: '#06C755' }}>
-                            <span>LINE:</span><span className="font-medium truncate">{lp.displayName}</span>
+
+                        {/* ชื่อ LINE (ถ้าต่างจากชื่อที่ลงทะเบียน) */}
+                        {lp?.found && lp.displayName && lp.displayName !== m.fullName && (
+                          <div className="flex items-center gap-1 text-xs mb-0.5">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="#06C755"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+                            <span className="font-medium" style={{ color: '#06C755' }}>{lp.displayName}</span>
                           </div>
                         )}
-                        {/* Status message จาก LINE */}
+
+                        {/* Status message */}
                         {lp?.statusMessage && (
-                          <div className="text-xs truncate italic" style={{ color: 'var(--text-muted)' }}>💬 {lp.statusMessage}</div>
+                          <div className="text-xs truncate italic mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                            💬 {lp.statusMessage}
+                          </div>
                         )}
-                        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                           {m.studentId && `#${m.studentId} • `}{m.email || ''}
                         </div>
                         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>📅 สมัคร {m.joinDate}</div>
                       </div>
 
+                      {/* badge สถานะ + ปุ่ม refresh รายคน */}
                       <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                         <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: st.bg, color: st.color }}>{st.label}</span>
-                        {/* ปุ่มดึงข้อมูล LINE รายคน */}
                         <button
-                          className="text-xs px-2 py-0.5 rounded-lg"
+                          className="text-xs px-2 py-1 rounded-lg"
                           style={{ background: '#e8f5e9', color: '#2e7d32', border: '1px solid #a5d6a7' }}
                           onClick={() => fetchOneProfile(m.lineUserId)}
-                          title="ดึงข้อมูลล่าสุดจาก LINE"
+                          title="รีเฟรชข้อมูล LINE"
                         >📲</button>
                       </div>
                     </div>
 
                     {/* LINE ID */}
-                    <div className="mb-3 px-1 py-1 rounded-lg" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
-                      LINE ID: {m.lineUserId}
+                    <div className="mb-3 px-2 py-1.5 rounded-lg flex items-center gap-2"
+                      style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="#06C755" className="flex-shrink-0"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+                      <span style={{ fontFamily: 'monospace', fontSize: '10px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{m.lineUserId}</span>
                     </div>
 
                     {/* Action buttons */}
