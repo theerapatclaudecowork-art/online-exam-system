@@ -6,3 +6,6 @@ dist/
 .DS_Store
 Thumbs.db
 .claude/
+# gas/ — เก็บเฉพาะ .clasp.json (Script ID), ไม่เก็บไฟล์โค้ดซ้ำ
+gas/Code.gs
+gas/appsscript.json

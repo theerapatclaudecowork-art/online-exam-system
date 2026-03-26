@@ -2,7 +2,7 @@
 //  CONFIG — แก้ไขค่าเหล่านี้ก่อน deploy
 // ============================================================
 export const LIFF_ID = 'YOUR_LIFF_ID_HERE';     // จาก LINE Developer Console
-export const GAS_URL = 'YOUR_GAS_EXEC_URL_HERE'; // จาก Google Apps Script > Deploy
+export const GAS_URL = 'https://script.google.com/macros/s/AKfycbwnNp2nA9QQddkqYTeBX0P_Mmba0j6ZJcj-MwgajacCvoTYf1MZAnXwxpg1EVA6xU_S5w/exec';
 
 export const PASS_THRESHOLD = 60;   // เกณฑ์ผ่าน (%)
 export const AUTO_APPROVE   = true; // true = อนุมัติสมาชิกทันที | false = รออนุมัติจากแอดมิน

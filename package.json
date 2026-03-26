@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "gas:push": "cp Code.gs gas/Code.gs && cd gas && clasp push --force",
+    "gas:deploy": "npm run gas:push && cd gas && clasp deploy --description \"v$(node -p \"require('./package.json').version\")\"",
+    "gas:open": "cd gas && clasp open"
   },
   "dependencies": {
     "react": "^18.3.1",
