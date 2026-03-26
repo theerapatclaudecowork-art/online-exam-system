@@ -20,12 +20,13 @@ export default function AdminScreen() {
   const [resultPage, setResultPage]   = useState(0);
   const [loading, setLoading]         = useState(false);
   const [syncing, setSyncing]         = useState(false);
-  const [profilesLoading, setProfilesLoading] = useState(false);
   const [lineProfiles, setLineProfiles] = useState({});
   const [memberFilter, setMemberFilter] = useState('');
   const [resultSearch, setResultSearch] = useState('');
+  const [triggerStatus, setTriggerStatus] = useState(null);
+  const [lastSyncTime, setLastSyncTime] = useState('');
 
-  useEffect(() => { loadStats(); loadMembers(); }, []);
+  useEffect(() => { loadStats(); loadMembers(); loadTriggerStatus(); }, []);
 
   async function loadStats() {
     try {
@@ -34,45 +35,32 @@ export default function AdminScreen() {
     } catch (e) {}
   }
 
-  // โหลด members จาก Sheets ก่อน (เร็ว) แล้วโหลด LINE profiles ทีหลัง (ช้ากว่า)
+  // โหลด members พร้อมข้อมูล LINE จาก Sheet (trigger sync ไว้แล้ว — เร็ว)
   async function loadMembers() {
     setLoading(true);
-    try {
-      const data = await apiGet('getMembers', { userId: profile.userId });
-      if (data.success) setMembers(data.members || []);
-    } catch (e) {}
-    finally { setLoading(false); }
-    // โหลด LINE profiles ใน background
-    loadLineProfiles();
-  }
-
-  // เรียก getMembersWithProfiles เพื่อดึงรูป+ข้อมูล LINE ทุกคนทีเดียว
-  async function loadLineProfiles() {
-    setProfilesLoading(true);
     try {
       const data = await apiGet('getMembersWithProfiles', { userId: profile.userId });
       if (!data.success) return;
       const map = {};
-      const updatedMembers = [];
       (data.members || []).forEach(m => {
-        map[m.lineUserId] = {
-          displayName:   m.lineDisplayName,
-          pictureUrl:    m.linePictureUrl,
-          statusMessage: m.lineStatusMessage,
-          language:      m.lineLanguage,
-          found:         m.lineFound,
-        };
-        updatedMembers.push({
-          ...m,
-          // ถ้า LINE มีรูปให้ใช้แทน
-          pictureUrl:  m.linePictureUrl  || m.pictureUrl,
-          displayName: m.lineDisplayName || m.displayName,
-        });
+        map[m.lineUserId] = { found: m.lineFound, pictureUrl: m.linePictureUrl, displayName: m.lineDisplayName };
       });
       setLineProfiles(map);
-      setMembers(updatedMembers);
+      setMembers(data.members || []);
+      if (data.lastSyncTime) setLastSyncTime(data.lastSyncTime);
     } catch (e) {}
-    finally { setProfilesLoading(false); }
+    finally { setLoading(false); }
+  }
+
+  // โหลดสถานะ trigger
+  async function loadTriggerStatus() {
+    try {
+      const data = await apiGet('getTriggerStatus', { userId: profile.userId });
+      if (data.success) {
+        setTriggerStatus(data);
+        if (data.lastSyncTime && data.lastSyncTime !== '(ยังไม่เคย sync)') setLastSyncTime(data.lastSyncTime);
+      }
+    } catch (e) {}
   }
 
   async function loadResults(page = 0) {
@@ -111,21 +99,11 @@ export default function AdminScreen() {
       const data = await apiGet('syncAllLineProfiles', { userId: profile.userId });
       if (!data.success) throw new Error(data.message);
 
-      // อัปเดต local state
-      const map = {};
-      (data.profiles || []).forEach(p => { map[p.userId] = p; });
-      setLineProfiles(prev => ({ ...prev, ...map }));
-
-      // อัปเดต displayName และ pictureUrl ใน members list
-      if (data.profiles?.length) {
-        setMembers(prev => prev.map(m => {
-          const lp = map[m.lineUserId];
-          if (!lp) return m;
-          return { ...m, displayName: lp.displayName || m.displayName, pictureUrl: lp.pictureUrl || m.pictureUrl };
-        }));
-      }
-
+      // โหลด members ใหม่จาก Sheet (ซึ่งถูกอัปเดตแล้ว)
+      await loadMembers();
+      await loadTriggerStatus();
       await loadStats();
+
       Swal.fire({
         icon: 'success',
         title: 'Sync สำเร็จ!',
@@ -274,6 +252,21 @@ export default function AdminScreen() {
               <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 ml-auto" onClick={loadMembers}>🔄</button>
             </div>
 
+            {/* Trigger status bar */}
+            <div className="flex items-center gap-2 text-xs py-2 px-1 mb-2" style={{ borderTop: '1px solid var(--input-border)', marginTop: 4, paddingTop: 8 }}>
+              <span className="flex items-center gap-1 flex-shrink-0">
+                {triggerStatus?.hasHourlyTrigger
+                  ? <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" title="Trigger ทำงาน" />
+                  : <span className="w-2.5 h-2.5 rounded-full bg-gray-400 flex-shrink-0" title="ยังไม่ได้ติดตั้ง Trigger" />
+                }
+                {triggerStatus?.hasHourlyTrigger ? '⏱ Auto sync ทุก 1 ชม.' : '⚠️ ยังไม่ได้ติดตั้ง trigger'}
+              </span>
+              <span style={{ color: 'var(--text-muted)' }}>|</span>
+              <span className="truncate" style={{ color: 'var(--text-muted)' }}>
+                🕐 {lastSyncTime || 'ยังไม่เคย sync'}
+              </span>
+            </div>
+
             {/* Sync LINE Profiles button */}
             <button
               className="btn w-full rounded-xl py-2.5 text-sm font-semibold"
@@ -283,18 +276,9 @@ export default function AdminScreen() {
             >
               {syncing
                 ? <span className="flex items-center justify-center gap-2"><span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> กำลัง Sync LINE Profiles...</span>
-                : '📲 Sync ข้อมูลจาก LINE ทุกคน'}
+                : '📲 Sync ข้อมูลจาก LINE ทันที'}
             </button>
           </div>
-
-          {/* แถบแสดงสถานะโหลด LINE profiles */}
-          {profilesLoading && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-3 text-xs"
-              style={{ background: '#e8f5e9', color: '#2e7d32' }}>
-              <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin flex-shrink-0" />
-              กำลังโหลดรูปโปรไฟล์จาก LINE...
-            </div>
-          )}
 
           {loading ? <Spinner label="กำลังโหลด..." /> : (
             <div className="space-y-3 mb-4">
@@ -327,11 +311,11 @@ export default function AdminScreen() {
                           style={{ background: 'var(--input-bg)', display: pic ? 'none' : 'flex' }}
                         >👤</div>
 
-                        {/* สถานะ online indicator */}
+                        {/* สถานะ LINE indicator */}
                         <span
                           className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white"
-                          style={{ background: lp?.found ? '#06C755' : (profilesLoading ? '#d97706' : '#94a3b8') }}
-                          title={lp?.found ? 'พบใน LINE' : (profilesLoading ? 'กำลังโหลด...' : 'ไม่พบใน LINE')}
+                          style={{ background: lp?.found ? '#06C755' : '#94a3b8' }}
+                          title={lp?.found ? 'พบใน LINE' : 'ไม่พบใน LINE'}
                         />
                       </div>
 
@@ -347,17 +331,17 @@ export default function AdminScreen() {
                         </div>
 
                         {/* ชื่อ LINE (ถ้าต่างจากชื่อที่ลงทะเบียน) */}
-                        {lp?.found && lp.displayName && lp.displayName !== m.fullName && (
+                        {m.lineFound && m.lineDisplayName && m.lineDisplayName !== m.fullName && (
                           <div className="flex items-center gap-1 text-xs mb-0.5">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="#06C755"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
-                            <span className="font-medium" style={{ color: '#06C755' }}>{lp.displayName}</span>
+                            <span className="font-medium" style={{ color: '#06C755' }}>{m.lineDisplayName}</span>
                           </div>
                         )}
 
                         {/* Status message */}
-                        {lp?.statusMessage && (
+                        {m.lineStatusMessage && (
                           <div className="text-xs truncate italic mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                            💬 {lp.statusMessage}
+                            💬 {m.lineStatusMessage}
                           </div>
                         )}
 

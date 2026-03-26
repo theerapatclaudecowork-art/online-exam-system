@@ -65,6 +65,7 @@ function route(action, params, body) {
       case 'getLineProfile':         return json(getLineProfile(params.userId, params.callerUserId));
       case 'syncAllLineProfiles':    return json(syncAllLineProfiles(params.userId));
       case 'getMembersWithProfiles': return json(getMembersWithProfiles(params.userId));
+      case 'getTriggerStatus':       return json(getTriggerStatus(params.userId));
       default:                    return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -563,107 +564,156 @@ function getLineProfile(targetUserId, callerUserId) {
   return { success: true, profile };
 }
 
-// Sync โปรไฟล์ทุกคนจาก LINE API แล้วอัปเดต Sheets
-function syncAllLineProfiles(callerUserId) {
-  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+// ─────────────────────────────────────────
+//  LINE Profile Sync (ตั้ง trigger ทุก 1 ชม.)
+// ─────────────────────────────────────────
 
+// ฟังก์ชันหลักที่ Time-driven Trigger เรียก (ไม่เช็ค admin)
+function syncAllLineProfilesScheduled() {
   const sheet = getSheet(SHEET_USERS);
-  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  if (!sheet) return;
 
   const rows = sheet.getDataRange().getValues();
-  const updated = [];
-  const failed  = [];
+  let updatedCount = 0;
+  let failedCount  = 0;
 
   for (let i = 1; i < rows.length; i++) {
     const uid = String(rows[i][0] || '').trim();
     if (!uid) continue;
 
-    const profile = fetchLineProfile(uid);
-    if (!profile) {
-      failed.push(uid);
-      continue;
-    }
+    const lp = fetchLineProfile(uid);
+    if (!lp) { failedCount++; continue; }
 
-    // อัปเดต displayName (col B) และ pictureUrl (col H) จาก LINE API
-    if (profile.displayName) sheet.getRange(i + 1, 2).setValue(profile.displayName);
-    if (profile.pictureUrl)  sheet.getRange(i + 1, 8).setValue(profile.pictureUrl);
+    // อัปเดต displayName (col B=2) และ pictureUrl (col H=8)
+    if (lp.displayName) sheet.getRange(i + 1, 2).setValue(lp.displayName);
+    if (lp.pictureUrl)  sheet.getRange(i + 1, 8).setValue(lp.pictureUrl);
+    updatedCount++;
 
-    updated.push({
-      userId:        uid,
-      displayName:   profile.displayName   || '',
-      pictureUrl:    profile.pictureUrl    || '',
-      statusMessage: profile.statusMessage || '',
-      language:      profile.language      || '',
-      rowIndex:      i,
-    });
-
-    // หน่วงเล็กน้อยเพื่อไม่ให้ rate limit
-    Utilities.sleep(100);
+    Utilities.sleep(100); // หน่วงเพื่อไม่ให้ rate limit
   }
 
+  // บันทึกเวลา sync ล่าสุดใน PropertiesService
+  PropertiesService.getScriptProperties().setProperties({
+    lastSyncTime:    new Date().toISOString(),
+    lastSyncUpdated: String(updatedCount),
+    lastSyncFailed:  String(failedCount),
+  });
+
+  console.log('LINE profile sync done — updated:' + updatedCount + ' failed:' + failedCount);
+}
+
+// Sync โปรไฟล์ทุกคนจาก LINE API แล้วอัปเดต Sheets (เรียกจาก admin client)
+function syncAllLineProfiles(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  syncAllLineProfilesScheduled();
+  const props = PropertiesService.getScriptProperties().getProperties();
   return {
-    success: true,
-    updatedCount: updated.length,
-    failedCount:  failed.length,
-    profiles:     updated,
-    failed,
+    success:      true,
+    updatedCount: Number(props.lastSyncUpdated || 0),
+    failedCount:  Number(props.lastSyncFailed  || 0),
+    lastSyncTime: props.lastSyncTime || '',
   };
 }
 
-// ดึง Members พร้อม LINE Profile ทุกคนใน 1 call (ไม่บันทึก Sheets)
+// ดึง Members จาก Sheet (ข้อมูลถูก sync โดย trigger แล้ว — ไม่เรียก LINE API ซ้ำ)
 function getMembersWithProfiles(callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
 
   const sheet = getSheet(SHEET_USERS);
-  if (!sheet) return { success: true, members: [] };
+  if (!sheet) return { success: true, members: [], lastSyncTime: '' };
 
-  const rows = sheet.getDataRange().getValues();
+  const rows  = sheet.getDataRange().getValues();
+  const props = PropertiesService.getScriptProperties().getProperties();
   const members = [];
 
   for (let i = 1; i < rows.length; i++) {
     const uid = String(rows[i][0] || '').trim();
     if (!uid) continue;
 
-    // ข้อมูลจาก Sheets
-    const member = {
-      lineUserId:  uid,
-      displayName: String(rows[i][1] || ''),
-      status:      String(rows[i][2] || ''),
-      fullName:    String(rows[i][3] || ''),
-      email:       String(rows[i][4] || ''),
-      phone:       String(rows[i][5] || ''),
-      studentId:   String(rows[i][6] || ''),
-      pictureUrl:  String(rows[i][7] || ''),
-      joinDate:    formatDate(rows[i][8]),
-      role:        String(rows[i][9] || ''),
-      // LINE live data (จะถูก fill ด้านล่าง)
-      lineDisplayName:   '',
-      linePictureUrl:    '',
+    const pictureUrl  = String(rows[i][7] || '');
+    const displayName = String(rows[i][1] || '');
+
+    members.push({
+      lineUserId:        uid,
+      displayName:       displayName,
+      status:            String(rows[i][2] || ''),
+      fullName:          String(rows[i][3] || ''),
+      email:             String(rows[i][4] || ''),
+      phone:             String(rows[i][5] || ''),
+      studentId:         String(rows[i][6] || ''),
+      pictureUrl:        pictureUrl,
+      joinDate:          formatDate(rows[i][8]),
+      role:              String(rows[i][9] || ''),
+      // LINE data จาก Sheet (ถูก sync แล้ว)
+      lineFound:         !!pictureUrl,
+      linePictureUrl:    pictureUrl,
+      lineDisplayName:   displayName,
       lineStatusMessage: '',
-      lineLanguage:      '',
-      lineFound:         false,
-    };
-
-    // เรียก LINE API ดึงโปรไฟล์ล่าสุด
-    const lp = fetchLineProfile(uid);
-    if (lp) {
-      member.lineDisplayName   = lp.displayName   || '';
-      member.linePictureUrl    = lp.pictureUrl    || '';
-      member.lineStatusMessage = lp.statusMessage || '';
-      member.lineLanguage      = lp.language      || '';
-      member.lineFound         = true;
-
-      // ถ้า LINE มีรูปและ Sheets ยังไม่มี ให้อัปเดต Sheets ด้วย
-      if (lp.pictureUrl && !rows[i][7]) {
-        sheet.getRange(i + 1, 8).setValue(lp.pictureUrl);
-      }
-    }
-
-    members.push(member);
-    Utilities.sleep(80); // rate limit buffer
+    });
   }
 
-  return { success: true, members };
+  return {
+    success:      true,
+    members,
+    lastSyncTime: props.lastSyncTime || '',
+  };
+}
+
+// ─────────────────────────────────────────
+//  Trigger Management
+// ─────────────────────────────────────────
+
+// ติดตั้ง Time-driven Trigger ทุก 1 ชม.
+// ** รันฟังก์ชันนี้ครั้งเดียวจาก Apps Script Editor **
+function setupHourlyTrigger() {
+  deleteAllTriggers(); // ลบเก่าก่อนป้องกัน duplicate
+
+  ScriptApp.newTrigger('syncAllLineProfilesScheduled')
+    .timeBased()
+    .everyHours(1)
+    .create();
+
+  // รัน sync ทันทีหลังติดตั้ง
+  syncAllLineProfilesScheduled();
+
+  console.log('✅ Hourly trigger installed & first sync done.');
+}
+
+// ลบ trigger ทั้งหมดของ script นี้
+function deleteAllTriggers() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+}
+
+// ดูสถานะ trigger + เวลา sync ล่าสุด (เรียกจาก admin client)
+function getTriggerStatus(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+
+  const triggers = ScriptApp.getProjectTriggers().map(t => ({
+    funcName:   t.getHandlerFunction(),
+    triggerSrc: t.getTriggerSource().toString(),
+    eventType:  t.getEventType().toString(),
+  }));
+
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const lastSyncTime = props.lastSyncTime || '';
+
+  // แปลง ISO → เวลาไทย
+  let lastSyncLocal = '(ยังไม่เคย sync)';
+  if (lastSyncTime) {
+    try {
+      const d = new Date(lastSyncTime);
+      lastSyncLocal = Utilities.formatDate(d, 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss');
+    } catch (_) { lastSyncLocal = lastSyncTime; }
+  }
+
+  return {
+    success:         true,
+    triggers,
+    hasHourlyTrigger: triggers.some(t => t.funcName === 'syncAllLineProfilesScheduled'),
+    lastSyncTime:    lastSyncLocal,
+    lastSyncUpdated: props.lastSyncUpdated || '0',
+    lastSyncFailed:  props.lastSyncFailed  || '0',
+  };
 }
 
 // ─────────────────────────────────────────
