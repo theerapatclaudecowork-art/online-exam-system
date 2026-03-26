@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiPost } from '../utils/api';
-import { PASS_THRESHOLD } from '../config';
+import { PASS_THRESHOLD, LIFF_ID } from '../config';
 
 const CIRCUMFERENCE = 251.2;
 
@@ -17,8 +17,32 @@ function trunc(str, n = 60) {
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
+// ─── Footer ปุ่มร่วม ────────────────────────────────────────────
+function buildFooter(liffId) {
+  const base = liffId ? `https://liff.line.me/${liffId}` : '#';
+  return {
+    type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'sm',
+    contents: [
+      {
+        type: 'box', layout: 'horizontal', spacing: 'sm',
+        contents: [
+          {
+            type: 'button', style: 'primary', height: 'sm', flex: 1,
+            color: '#4f46e5',
+            action: { type: 'uri', label: '📋 ประวัติสอบ', uri: `${base}?page=history` },
+          },
+          {
+            type: 'button', style: 'secondary', height: 'sm', flex: 1,
+            action: { type: 'uri', label: '🔄 สอบอีกครั้ง', uri: `${base}?page=quiz` },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 // ─── Bubble 1: สรุปคะแนน ───────────────────────────────────────
-function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount }) {
+function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount, liffId }) {
   const isPass     = pass;
   const headerBg   = isPass ? '#16a34a' : '#dc2626';
   const passColor  = isPass ? '#16a34a' : '#dc2626';
@@ -77,16 +101,17 @@ function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min,
           cornerRadius: '10px', paddingAll: '10px',
           contents: [
             { type: 'text', text: passText, weight: 'bold', size: 'md', color: passColor, align: 'center' },
-            { type: 'text', text: `เกณฑ์ผ่าน 60% ขึ้นไป${wrongCount > 0 ? '  •  ดูข้อผิด ›' : ''}`, size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
+            { type: 'text', text: `เกณฑ์ผ่าน 60% ขึ้นไป${wrongCount > 0 ? '  •  ปัดดูข้อผิด ›' : ''}`, size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
           ],
         },
       ],
     },
+    footer: buildFooter(liffId),
   };
 }
 
 // ─── Bubble 2: รายละเอียดข้อผิด ────────────────────────────────
-function buildWrongBubble(wrongItems) {
+function buildWrongBubble(wrongItems, liffId) {
   if (wrongItems.length === 0) {
     return {
       type: 'bubble', size: 'kilo',
@@ -98,6 +123,7 @@ function buildWrongBubble(wrongItems) {
           { type: 'text', text: 'ยอดเยี่ยมมาก ไม่มีข้อที่ผิดเลย', size: 'sm', color: '#888888', align: 'center', margin: 'sm' },
         ],
       },
+      footer: buildFooter(liffId),
     };
   }
 
@@ -177,17 +203,18 @@ function buildWrongBubble(wrongItems) {
       type: 'box', layout: 'vertical', paddingAll: '14px',
       contents: rows,
     },
+    footer: buildFooter(liffId),
   };
 }
 
 // ─── สร้าง Flex Message หลัก (carousel) ────────────────────────
-function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, detail }) {
+function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, detail, liffId }) {
   const wrongItems = (detail || [])
     .map((d, i) => ({ ...d, no: i + 1 }))
     .filter(d => !d.isRight);
 
-  const summaryBubble = buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount: wrongItems.length });
-  const wrongBubble   = buildWrongBubble(wrongItems);
+  const summaryBubble = buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount: wrongItems.length, liffId });
+  const wrongBubble   = buildWrongBubble(wrongItems, liffId);
   const isPass        = pass;
 
   return {
@@ -268,6 +295,7 @@ export default function ScoreScreen() {
         min,
         sec,
         detail:      exam.detail || [],
+        liffId:      LIFF_ID,
       });
 
       await liff.sendMessages([msg]);

@@ -64,7 +64,15 @@ export default function AuthScreen() {
         }
 
         if (data.role === 'admin') setIsAdmin(true);
-        navigate('setup');
+
+        // ── Deeplink: ?page=history หรือ ?page=quiz ──
+        const urlParams = new URLSearchParams(window.location.search);
+        const goPage    = urlParams.get('page');
+        if (goPage === 'history') {
+          navigate('history');
+        } else {
+          navigate('setup');
+        }
       } catch (e) {
         console.error(e);
         const msg = e?.message || '';
