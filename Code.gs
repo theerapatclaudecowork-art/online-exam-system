@@ -56,6 +56,7 @@ function route(action, params, body) {
       case 'getAdminStats':    return json(getAdminStats(params.userId));
       case 'getMembers':       return json(getMembers(params.userId));
       case 'updateMember':     return json(updateMember(body));
+      case 'getMemberDetail':  return json(getMemberDetail(body));
       case 'deleteMember':     return json(deleteMember(body));
       case 'getAllResults':     return json(getAllResults(params.userId, params.page));
       case 'getAllQuestions':   return json(getAllQuestions(params.userId));
@@ -400,22 +401,95 @@ function getMembers(callerUserId) {
 }
 
 function updateMember(body) {
-  const { callerUserId, targetUserId, newStatus } = body || {};
+  const { callerUserId, targetUserId, newStatus, fullName, email, phone, studentId, role } = body || {};
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
-  if (!targetUserId || !newStatus) return { success: false, message: 'ข้อมูลไม่ครบ' };
-  const allowed = ['active', 'inactive', 'pending'];
-  if (!allowed.includes(newStatus)) return { success: false, message: 'สถานะไม่ถูกต้อง' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ targetUserId' };
+
+  // ถ้าส่ง newStatus มาให้ตรวจสอบค่า
+  const allowedStatus = ['active', 'inactive', 'pending'];
+  if (newStatus && !allowedStatus.includes(newStatus)) return { success: false, message: 'สถานะไม่ถูกต้อง' };
+
+  // ป้องกันเปลี่ยน role admin ของตัวเอง
+  if (callerUserId === targetUserId && role !== undefined) {
+    return { success: false, message: 'ไม่สามารถเปลี่ยน role ตัวเองได้' };
+  }
 
   const sheet = getSheet(SHEET_USERS);
   if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
   const rows = sheet.getDataRange().getValues();
+
   for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(targetUserId).trim()) {
-      sheet.getRange(i + 1, 3).setValue(newStatus);
-      return { success: true };
-    }
+    if (String(rows[i][0]).trim() !== String(targetUserId).trim()) continue;
+
+    const row = i + 1;
+    // B=2:displayName  C=3:status  D=4:fullName  E=5:email  F=6:phone  G=7:studentId  J=10:role
+    if (newStatus   !== undefined) sheet.getRange(row, 3).setValue(newStatus);
+    if (fullName    !== undefined) sheet.getRange(row, 4).setValue(fullName);
+    if (email       !== undefined) sheet.getRange(row, 5).setValue(email);
+    if (phone       !== undefined) sheet.getRange(row, 6).setValue(phone);
+    if (studentId   !== undefined) sheet.getRange(row, 7).setValue(studentId);
+    if (role        !== undefined) sheet.getRange(row, 10).setValue(role);
+
+    return { success: true };
   }
   return { success: false, message: 'ไม่พบผู้ใช้' };
+}
+
+// ดึงข้อมูลสมาชิก 1 คน พร้อมประวัติสอบ (เรียกจาก admin client)
+function getMemberDetail(body) {
+  const { callerUserId, targetUserId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ targetUserId' };
+
+  const sheetU = getSheet(SHEET_USERS);
+  if (!sheetU) return { success: false, message: 'ไม่พบ Sheet' };
+  const uRows = sheetU.getDataRange().getValues();
+  let member = null;
+
+  for (let i = 1; i < uRows.length; i++) {
+    if (String(uRows[i][0]).trim() !== String(targetUserId).trim()) continue;
+    member = {
+      lineUserId:  String(uRows[i][0] || ''),
+      displayName: String(uRows[i][1] || ''),
+      status:      String(uRows[i][2] || ''),
+      fullName:    String(uRows[i][3] || ''),
+      email:       String(uRows[i][4] || ''),
+      phone:       String(uRows[i][5] || ''),
+      studentId:   String(uRows[i][6] || ''),
+      pictureUrl:  String(uRows[i][7] || ''),
+      joinDate:    formatDate(uRows[i][8]),
+      role:        String(uRows[i][9] || ''),
+    };
+    break;
+  }
+  if (!member) return { success: false, message: 'ไม่พบผู้ใช้' };
+
+  // ดึงประวัติสอบ
+  const sheetR = getSheet(SHEET_RESULTS);
+  let exams = [];
+  if (sheetR) {
+    const rRows = sheetR.getDataRange().getValues().slice(1);
+    exams = rRows
+      .filter(r => String(r[1] || '').trim() === targetUserId)
+      .reverse()
+      .slice(0, 20)
+      .map(r => ({
+        date:     formatDate(r[0]),
+        lesson:   String(r[4] || ''),
+        score:    Number(r[5] || 0),
+        total:    Number(r[6] || 0),
+        pct:      String(r[7] || '0%'),
+        pass:     String(r[8] || ''),
+        timeUsed: Number(r[9] || 0),
+        examId:   String(r[10] || ''),
+      }));
+  }
+
+  const totalExams = exams.length;
+  const passCount  = exams.filter(e => e.pass === 'ผ่าน').length;
+  const passRate   = totalExams > 0 ? Math.round((passCount / totalExams) * 100) : 0;
+
+  return { success: true, member, exams, totalExams, passCount, passRate };
 }
 
 function deleteMember(body) {
