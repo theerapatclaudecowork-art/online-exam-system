@@ -19,6 +19,9 @@ const SHEET_RESULTS   = 'Results';
 
 const AUTO_APPROVE = true; // true = อนุมัติสมาชิกทันที | false = รออนุมัติจากแอดมิน
 
+// LINE Messaging API — ใช้ดึงโปรไฟล์ user จาก LINE
+const LINE_CHANNEL_TOKEN = '9XJFiPwZV8Rfiz+YJm1PD0qAHX9JBTSZmZ08U/ieuNwuHlEg+VuKvIoQn3MqiR308ox/ehTBuQecDTtp8gKHl+7SdOe8gwCnCgrAJKdda0K3W+PklprSr9mYHFKElTf7HVAvKKbyGfoRy51I4dXUQwdB04t89/1O/w1cDnyilFU=';
+
 // ─────────────────────────────────────────
 //  Entry Points
 // ─────────────────────────────────────────
@@ -58,8 +61,10 @@ function route(action, params, body) {
       case 'getAllQuestions':   return json(getAllQuestions(params.userId));
       case 'addQuestion':      return json(addQuestion(body));
       case 'updateQuestion':   return json(updateQuestion(body));
-      case 'deleteQuestion':   return json(deleteQuestion(body));
-      default:                 return json({ success: false, message: 'Unknown action: ' + action });
+      case 'deleteQuestion':      return json(deleteQuestion(body));
+      case 'getLineProfile':      return json(getLineProfile(params.userId, params.callerUserId));
+      case 'syncAllLineProfiles': return json(syncAllLineProfiles(params.userId));
+      default:                    return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
     return json({ success: false, message: err.toString() });
@@ -525,6 +530,83 @@ function deleteQuestion(body) {
     }
   }
   return { success: false, message: 'ไม่พบข้อสอบ' };
+}
+
+// ─────────────────────────────────────────
+//  LINE API — ดึงโปรไฟล์จาก LINE
+// ─────────────────────────────────────────
+
+// ดึงโปรไฟล์ user 1 คน จาก LINE API
+function fetchLineProfile(lineUserId) {
+  try {
+    const res = UrlFetchApp.fetch(
+      'https://api.line.me/v2/bot/profile/' + encodeURIComponent(lineUserId),
+      {
+        method: 'get',
+        headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN },
+        muteHttpExceptions: true,
+      }
+    );
+    const code = res.getResponseCode();
+    if (code !== 200) return null;
+    return JSON.parse(res.getContentText());
+  } catch (_) { return null; }
+}
+
+// ดึงโปรไฟล์ user 1 คน (เรียกจาก client)
+function getLineProfile(targetUserId, callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ userId' };
+  const profile = fetchLineProfile(targetUserId);
+  if (!profile) return { success: false, message: 'ไม่พบข้อมูลใน LINE (อาจยังไม่ได้เพิ่มบอทเป็นเพื่อน)' };
+  return { success: true, profile };
+}
+
+// Sync โปรไฟล์ทุกคนจาก LINE API แล้วอัปเดต Sheets
+function syncAllLineProfiles(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+
+  const rows = sheet.getDataRange().getValues();
+  const updated = [];
+  const failed  = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const uid = String(rows[i][0] || '').trim();
+    if (!uid) continue;
+
+    const profile = fetchLineProfile(uid);
+    if (!profile) {
+      failed.push(uid);
+      continue;
+    }
+
+    // อัปเดต displayName (col B) และ pictureUrl (col H) จาก LINE API
+    if (profile.displayName) sheet.getRange(i + 1, 2).setValue(profile.displayName);
+    if (profile.pictureUrl)  sheet.getRange(i + 1, 8).setValue(profile.pictureUrl);
+
+    updated.push({
+      userId:        uid,
+      displayName:   profile.displayName   || '',
+      pictureUrl:    profile.pictureUrl    || '',
+      statusMessage: profile.statusMessage || '',
+      language:      profile.language      || '',
+      rowIndex:      i,
+    });
+
+    // หน่วงเล็กน้อยเพื่อไม่ให้ rate limit
+    Utilities.sleep(100);
+  }
+
+  return {
+    success: true,
+    updatedCount: updated.length,
+    failedCount:  failed.length,
+    profiles:     updated,
+    failed,
+  };
 }
 
 // ─────────────────────────────────────────

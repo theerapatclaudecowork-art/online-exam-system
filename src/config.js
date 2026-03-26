@@ -2,7 +2,7 @@
 //  CONFIG — แก้ไขค่าเหล่านี้ก่อน deploy
 // ============================================================
 export const LIFF_ID = '2006455439-ctBQV5VL';     // จาก LINE Developer Console
-export const GAS_URL = 'https://script.google.com/macros/s/AKfycbyzZFkQ7MMZJ7LyMXEOKPYFjSeGOeIerIyLryl5-szzxS21TaRIvHBvn33AbY_RvadR9g/exec';
+export const GAS_URL = 'https://script.google.com/macros/s/AKfycbwDDg7iZQOzwJDnE6-5-IZe_YWNgW3efVCFvrht41zFcU5u7SMR5i2pWOooTxvlgjMGfQ/exec';
 
 export const PASS_THRESHOLD = 60;   // เกณฑ์ผ่าน (%)
 export const AUTO_APPROVE   = true; // true = อนุมัติสมาชิกทันที | false = รออนุมัติจากแอดมิน

@@ -18,7 +18,9 @@ export default function AdminScreen() {
   const [results, setResults] = useState([]);
   const [resultTotal, setResultTotal] = useState(0);
   const [resultPage, setResultPage]   = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [syncing, setSyncing]   = useState(false);
+  const [lineProfiles, setLineProfiles] = useState({}); // { userId: { displayName, pictureUrl, statusMessage } }
   const [memberFilter, setMemberFilter] = useState('');
   const [resultSearch, setResultSearch] = useState('');
 
@@ -47,6 +49,62 @@ export default function AdminScreen() {
       if (data.success) { setResults(data.results || []); setResultTotal(data.total || 0); setResultPage(page); }
     } catch (e) {}
     finally { setLoading(false); }
+  }
+
+  // ── ดึง LINE Profile ของ user คนเดียว ────────────────────
+  async function fetchOneProfile(userId) {
+    try {
+      const data = await apiGet('getLineProfile', { userId, callerUserId: profile.userId });
+      if (data.success && data.profile) {
+        setLineProfiles(prev => ({ ...prev, [userId]: data.profile }));
+      }
+    } catch (_) {}
+  }
+
+  // ── Sync LINE Profiles ทั้งหมด ────────────────────────────
+  async function syncAllProfiles() {
+    const r = await Swal.fire({
+      title: '🔄 Sync LINE Profiles',
+      html: `ระบบจะดึงข้อมูล <b>ชื่อ-รูปโปรไฟล์</b> ล่าสุดจาก LINE<br>สำหรับสมาชิกทุกคนและอัปเดตใน Sheets<br><br><small style="color:#888">อาจใช้เวลาสักครู่ตามจำนวนสมาชิก</small>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: '✅ Sync เลย',
+      cancelButtonText: 'ยกเลิก',
+    });
+    if (!r.isConfirmed) return;
+
+    setSyncing(true);
+    try {
+      const data = await apiGet('syncAllLineProfiles', { userId: profile.userId });
+      if (!data.success) throw new Error(data.message);
+
+      // อัปเดต local state
+      const map = {};
+      (data.profiles || []).forEach(p => { map[p.userId] = p; });
+      setLineProfiles(prev => ({ ...prev, ...map }));
+
+      // อัปเดต displayName และ pictureUrl ใน members list
+      if (data.profiles?.length) {
+        setMembers(prev => prev.map(m => {
+          const lp = map[m.lineUserId];
+          if (!lp) return m;
+          return { ...m, displayName: lp.displayName || m.displayName, pictureUrl: lp.pictureUrl || m.pictureUrl };
+        }));
+      }
+
+      await loadStats();
+      Swal.fire({
+        icon: 'success',
+        title: 'Sync สำเร็จ!',
+        html: `✅ อัปเดต <b>${data.updatedCount}</b> คน<br>${data.failedCount > 0 ? `⚠️ ไม่พบใน LINE <b>${data.failedCount}</b> คน` : ''}`,
+        timer: 3000,
+        showConfirmButton: false,
+      });
+    } catch (e) {
+      Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function handleUpdateMember(targetUserId, newStatus) {
@@ -166,18 +224,34 @@ export default function AdminScreen() {
       {/* ── Members Tab ───────────────────────────── */}
       {tab === 'members' && (
         <div className="animate-fade">
-          <div className="quiz-card no-hover rounded-2xl p-3 mb-3 flex gap-2 flex-wrap">
-            {['', 'active', 'pending', 'inactive'].map(s => (
-              <button key={s} onClick={() => setMemberFilter(s)}
-                className="btn text-xs rounded-lg px-3 py-1.5"
-                style={{ background: memberFilter === s ? 'var(--accent)' : 'var(--input-bg)', color: memberFilter === s ? 'white' : 'var(--text-muted)' }}>
-                {s === '' ? 'ทั้งหมด' : s === 'active' ? '✅ ใช้งาน' : s === 'pending' ? '⏳ รออนุมัติ' : '🚫 ระงับ'}
-                <span className="ml-1 font-bold">
-                  {s === '' ? members.length : members.filter(m => m.status === s).length}
-                </span>
-              </button>
-            ))}
-            <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 ml-auto" onClick={loadMembers}>🔄</button>
+
+          {/* Filter bar + Sync button */}
+          <div className="quiz-card no-hover rounded-2xl p-3 mb-3">
+            <div className="flex gap-2 flex-wrap mb-2">
+              {['', 'active', 'pending', 'inactive'].map(s => (
+                <button key={s} onClick={() => setMemberFilter(s)}
+                  className="btn text-xs rounded-lg px-3 py-1.5"
+                  style={{ background: memberFilter === s ? 'var(--accent)' : 'var(--input-bg)', color: memberFilter === s ? 'white' : 'var(--text-muted)' }}>
+                  {s === '' ? 'ทั้งหมด' : s === 'active' ? '✅ ใช้งาน' : s === 'pending' ? '⏳ รออนุมัติ' : '🚫 ระงับ'}
+                  <span className="ml-1 font-bold">
+                    {s === '' ? members.length : members.filter(m => m.status === s).length}
+                  </span>
+                </button>
+              ))}
+              <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 ml-auto" onClick={loadMembers}>🔄</button>
+            </div>
+
+            {/* Sync LINE Profiles button */}
+            <button
+              className="btn w-full rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: syncing ? 'var(--input-bg)' : '#06C755', color: syncing ? 'var(--text-muted)' : 'white' }}
+              onClick={syncAllProfiles}
+              disabled={syncing}
+            >
+              {syncing
+                ? <span className="flex items-center justify-center gap-2"><span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> กำลัง Sync LINE Profiles...</span>
+                : '📲 Sync ข้อมูลจาก LINE ทุกคน'}
+            </button>
           </div>
 
           {loading ? <Spinner label="กำลังโหลด..." /> : (
@@ -186,20 +260,62 @@ export default function AdminScreen() {
                 <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>ไม่มีสมาชิก</div>
               ) : filteredMembers.map(m => {
                 const st = STATUS_LABEL[m.status] || STATUS_LABEL.inactive;
+                const lp = lineProfiles[m.lineUserId]; // LINE real-time profile
+                const pic = lp?.pictureUrl || m.pictureUrl;
+                const name = lp?.displayName || m.displayName;
+
                 return (
                   <div key={m.lineUserId} className="quiz-card rounded-xl p-4" style={{ cursor: 'default' }}>
-                    <div className="flex items-center gap-3 mb-3">
-                      {m.pictureUrl
-                        ? <img src={m.pictureUrl} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
-                        : <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-lg" style={{ background: 'var(--input-bg)' }}>👤</div>
-                      }
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>{m.fullName || m.displayName}</div>
-                        <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{m.studentId && `#${m.studentId} • `}{m.email || m.displayName}</div>
-                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>สมัคร {m.joinDate}</div>
+
+                    {/* Profile row */}
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="relative flex-shrink-0">
+                        {pic
+                          ? <img src={pic} alt="" className="w-12 h-12 rounded-full object-cover" />
+                          : <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={{ background: 'var(--input-bg)' }}>👤</div>
+                        }
+                        {lp && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white" title="ข้อมูลล่าสุดจาก LINE" />}
                       </div>
-                      <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 font-semibold" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>{m.fullName || name}</span>
+                          {m.role === 'admin' && <span className="text-xs px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: '#fef9c3', color: '#854d0e' }}>👑 Admin</span>}
+                        </div>
+                        {/* ชื่อ LINE จริง (ถ้าต่างจากชื่อเต็ม) */}
+                        {lp?.displayName && lp.displayName !== m.fullName && (
+                          <div className="text-xs flex items-center gap-1 mb-0.5" style={{ color: '#06C755' }}>
+                            <span>LINE:</span><span className="font-medium truncate">{lp.displayName}</span>
+                          </div>
+                        )}
+                        {/* Status message จาก LINE */}
+                        {lp?.statusMessage && (
+                          <div className="text-xs truncate italic" style={{ color: 'var(--text-muted)' }}>💬 {lp.statusMessage}</div>
+                        )}
+                        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          {m.studentId && `#${m.studentId} • `}{m.email || ''}
+                        </div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>📅 สมัคร {m.joinDate}</div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                        {/* ปุ่มดึงข้อมูล LINE รายคน */}
+                        <button
+                          className="text-xs px-2 py-0.5 rounded-lg"
+                          style={{ background: '#e8f5e9', color: '#2e7d32', border: '1px solid #a5d6a7' }}
+                          onClick={() => fetchOneProfile(m.lineUserId)}
+                          title="ดึงข้อมูลล่าสุดจาก LINE"
+                        >📲</button>
+                      </div>
                     </div>
+
+                    {/* LINE ID */}
+                    <div className="text-xs mb-3 px-1 py-1 rounded-lg" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px', wordBreak: 'break-all' }}>
+                      LINE ID: {m.lineUserId}
+                    </div>
+
+                    {/* Action buttons */}
                     {m.role !== 'admin' && (
                       <div className="flex gap-2 flex-wrap">
                         {m.status !== 'active' && (
@@ -211,7 +327,6 @@ export default function AdminScreen() {
                         <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => handleDeleteMember(m)}>🗑 ลบ</button>
                       </div>
                     )}
-                    {m.role === 'admin' && <div className="text-xs text-center py-1" style={{ color: 'var(--accent)', fontWeight: 600 }}>👑 แอดมิน</div>}
                   </div>
                 );
               })}
