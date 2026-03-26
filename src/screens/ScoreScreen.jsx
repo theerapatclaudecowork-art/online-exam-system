@@ -11,69 +11,194 @@ const LINE_ICON = (
   </svg>
 );
 
-// สร้าง Flex Message object
-function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec }) {
-  const isPass    = pass;
-  const headerBg  = isPass ? '#16a34a' : '#dc2626';
-  const passColor = isPass ? '#16a34a' : '#dc2626';
-  const passText  = isPass ? '✅ ผ่านการสอบ' : '❌ ไม่ผ่านการสอบ';
+// ตัดข้อความยาว
+function trunc(str, n = 60) {
+  const s = String(str || '');
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+// ─── Bubble 1: สรุปคะแนน ───────────────────────────────────────
+function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount }) {
+  const isPass     = pass;
+  const headerBg   = isPass ? '#16a34a' : '#dc2626';
+  const passColor  = isPass ? '#16a34a' : '#dc2626';
+  const passText   = isPass ? '✅ ผ่านการสอบ' : '❌ ไม่ผ่านการสอบ';
+  const rightCount = total - wrongCount;
 
   return {
-    type: 'flex',
-    altText: `📝 ผลสอบ ${exam_stub(lesson)} : ${score}/${total} (${pct}%) ${isPass ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}`,
-    contents: {
-      type: 'bubble',
-      size: 'kilo',
-      header: {
-        type: 'box', layout: 'vertical',
-        backgroundColor: headerBg,
-        paddingAll: '16px',
-        contents: [
-          { type: 'text', text: '📝 ผลการสอบ', color: '#ffffff', size: 'sm' },
-          { type: 'text', text: lesson, color: '#ffffff', weight: 'bold', size: 'lg', wrap: true },
-        ],
-      },
-      body: {
-        type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'md',
-        contents: [
-          {
-            type: 'box', layout: 'horizontal',
-            contents: [
-              { type: 'text', text: '👤 ผู้สอบ', size: 'sm', color: '#888888', flex: 2 },
-              { type: 'text', text: displayName || 'ไม่ระบุ', size: 'sm', color: '#333333', flex: 3, align: 'end', wrap: true },
-            ],
-          },
-          {
-            type: 'box', layout: 'horizontal',
-            contents: [
-              { type: 'text', text: '📊 คะแนน', size: 'sm', color: '#888888', flex: 2 },
-              { type: 'text', text: `${score}/${total}  (${pct}%)`, size: 'lg', weight: 'bold', color: passColor, flex: 3, align: 'end' },
-            ],
-          },
-          {
-            type: 'box', layout: 'horizontal',
-            contents: [
-              { type: 'text', text: '⏱ เวลา', size: 'sm', color: '#888888', flex: 2 },
-              { type: 'text', text: `${min}:${sec}`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
-            ],
-          },
-          { type: 'separator', margin: 'md' },
-          {
-            type: 'box', layout: 'vertical', margin: 'md',
-            backgroundColor: isPass ? '#f0fdf4' : '#fef2f2',
-            cornerRadius: '10px', paddingAll: '10px',
-            contents: [
-              { type: 'text', text: passText, weight: 'bold', size: 'md', color: passColor, align: 'center' },
-              { type: 'text', text: 'เกณฑ์ผ่าน 60% ขึ้นไป', size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
-            ],
-          },
-        ],
-      },
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'vertical', backgroundColor: headerBg, paddingAll: '16px',
+      contents: [
+        { type: 'text', text: '📝 ผลการสอบ', color: '#ffffffcc', size: 'xs' },
+        { type: 'text', text: trunc(lesson, 50), color: '#ffffff', weight: 'bold', size: 'lg', wrap: true },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'sm',
+      contents: [
+        // ผู้สอบ
+        {
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: '👤 ผู้สอบ', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: trunc(displayName || 'ไม่ระบุ', 20), size: 'sm', color: '#333333', flex: 3, align: 'end', wrap: true },
+          ],
+        },
+        // คะแนน
+        {
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: '📊 คะแนน', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: `${score}/${total}  (${pct}%)`, size: 'lg', weight: 'bold', color: passColor, flex: 3, align: 'end' },
+          ],
+        },
+        // ถูก/ผิด
+        {
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: '✔ ถูก / ✖ ผิด', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: `${rightCount} / ${wrongCount} ข้อ`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
+          ],
+        },
+        // เวลา
+        {
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: '⏱ เวลาที่ใช้', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: `${min}:${sec}`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
+          ],
+        },
+        { type: 'separator', margin: 'md' },
+        // ผลสรุป
+        {
+          type: 'box', layout: 'vertical', margin: 'sm',
+          backgroundColor: isPass ? '#f0fdf4' : '#fef2f2',
+          cornerRadius: '10px', paddingAll: '10px',
+          contents: [
+            { type: 'text', text: passText, weight: 'bold', size: 'md', color: passColor, align: 'center' },
+            { type: 'text', text: `เกณฑ์ผ่าน 60% ขึ้นไป${wrongCount > 0 ? '  •  ดูข้อผิด ›' : ''}`, size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
+          ],
+        },
+      ],
     },
   };
 }
-// helper ย่อ (closure workaround สำหรับ altText)
-function exam_stub(s) { return s || ''; }
+
+// ─── Bubble 2: รายละเอียดข้อผิด ────────────────────────────────
+function buildWrongBubble(wrongItems) {
+  if (wrongItems.length === 0) {
+    return {
+      type: 'bubble', size: 'kilo',
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: '20px', justifyContent: 'center',
+        contents: [
+          { type: 'text', text: '🌟', size: 'xxl', align: 'center' },
+          { type: 'text', text: 'ทำถูกทุกข้อ!', weight: 'bold', size: 'xl', align: 'center', color: '#16a34a', margin: 'md' },
+          { type: 'text', text: 'ยอดเยี่ยมมาก ไม่มีข้อที่ผิดเลย', size: 'sm', color: '#888888', align: 'center', margin: 'sm' },
+        ],
+      },
+    };
+  }
+
+  // แสดงสูงสุด 10 ข้อ เพื่อไม่ให้ bubble ใหญ่เกิน
+  const showItems = wrongItems.slice(0, 10);
+  const moreCount = wrongItems.length - showItems.length;
+
+  const rows = [];
+  showItems.forEach((item, i) => {
+    if (i > 0) rows.push({ type: 'separator', margin: 'md' });
+    rows.push({
+      type: 'box', layout: 'vertical', margin: i === 0 ? 'none' : 'md', spacing: 'xs',
+      contents: [
+        // เลขข้อ
+        {
+          type: 'box', layout: 'horizontal',
+          contents: [
+            {
+              type: 'box', layout: 'vertical', width: '28px', height: '28px',
+              backgroundColor: '#fee2e2', cornerRadius: '14px',
+              justifyContent: 'center', alignItems: 'center',
+              contents: [{ type: 'text', text: String(item.no), size: 'xs', color: '#b91c1c', weight: 'bold', align: 'center' }],
+            },
+            { type: 'text', text: trunc(item.question, 55), size: 'sm', color: '#1f2937', flex: 1, wrap: true, margin: 'sm' },
+          ],
+        },
+        // คำตอบ
+        {
+          type: 'box', layout: 'horizontal', margin: 'xs', spacing: 'sm',
+          contents: [
+            {
+              type: 'box', layout: 'vertical', flex: 1, paddingAll: '6px',
+              backgroundColor: '#fef2f2', cornerRadius: '6px',
+              contents: [
+                { type: 'text', text: 'คุณตอบ', size: 'xxs', color: '#b91c1c' },
+                { type: 'text', text: trunc(item.userAnswer, 20), size: 'xs', color: '#b91c1c', weight: 'bold', wrap: true },
+              ],
+            },
+            { type: 'text', text: '→', size: 'sm', color: '#9ca3af', align: 'center', flex: 0, margin: 'sm' },
+            {
+              type: 'box', layout: 'vertical', flex: 1, paddingAll: '6px',
+              backgroundColor: '#f0fdf4', cornerRadius: '6px',
+              contents: [
+                { type: 'text', text: 'เฉลย', size: 'xxs', color: '#15803d' },
+                { type: 'text', text: trunc(item.correctAnswer, 20), size: 'xs', color: '#15803d', weight: 'bold', wrap: true },
+              ],
+            },
+          ],
+        },
+        // คำอธิบาย
+        ...(item.explanation && item.explanation !== 'ไม่มีคำอธิบาย' ? [{
+          type: 'box', layout: 'vertical', margin: 'xs',
+          backgroundColor: '#f8fafc', cornerRadius: '6px', paddingAll: '8px',
+          contents: [
+            { type: 'text', text: '💡 ' + trunc(item.explanation, 80), size: 'xxs', color: '#475569', wrap: true },
+          ],
+        }] : []),
+      ],
+    });
+  });
+
+  if (moreCount > 0) {
+    rows.push({ type: 'separator', margin: 'md' });
+    rows.push({ type: 'text', text: `…และอีก ${moreCount} ข้อ (ดูเฉลยในแอป)`, size: 'xs', color: '#9ca3af', align: 'center', margin: 'md' });
+  }
+
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'vertical', backgroundColor: '#fef2f2', paddingAll: '14px',
+      contents: [
+        { type: 'text', text: `❌ ข้อที่ตอบผิด (${wrongItems.length} ข้อ)`, weight: 'bold', size: 'md', color: '#b91c1c' },
+        { type: 'text', text: 'ทบทวนและปรับปรุงต่อไป', size: 'xs', color: '#9ca3af', margin: 'xs' },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', paddingAll: '14px',
+      contents: rows,
+    },
+  };
+}
+
+// ─── สร้าง Flex Message หลัก (carousel) ────────────────────────
+function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, detail }) {
+  const wrongItems = (detail || [])
+    .map((d, i) => ({ ...d, no: i + 1 }))
+    .filter(d => !d.isRight);
+
+  const summaryBubble = buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount: wrongItems.length });
+  const wrongBubble   = buildWrongBubble(wrongItems);
+  const isPass        = pass;
+
+  return {
+    type: 'flex',
+    altText: `📝 ${trunc(lesson,30)} | ${score}/${total} (${pct}%) ${isPass ? '✅ ผ่าน' : '❌ ไม่ผ่าน'} | ผิด ${wrongItems.length} ข้อ`,
+    contents: {
+      type: 'carousel',
+      contents: [summaryBubble, wrongBubble],
+    },
+  };
+}
 
 export default function ScoreScreen() {
   const { navigate, profile, lineEmail, exam } = useApp();
@@ -142,6 +267,7 @@ export default function ScoreScreen() {
         pass,
         min,
         sec,
+        detail:      exam.detail || [],
       });
 
       await liff.sendMessages([msg]);
