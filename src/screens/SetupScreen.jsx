@@ -50,21 +50,23 @@ export default function SetupScreen() {
           <div className="font-bold text-lg" style={{ color: 'var(--text)' }}>{profile?.displayName}</div>
           <div className="text-sm" style={{ color: 'var(--text-muted)' }}>พร้อมทำแบบทดสอบ</div>
         </div>
-        <button
-          onClick={() => navigate('history')}
-          className="btn btn-yellow rounded-xl px-4 py-2 text-sm flex-shrink-0"
-        >
-          📊 ประวัติการสอบ
-        </button>
-        {isAdmin && (
+        <div className="flex flex-col gap-2 flex-shrink-0">
           <button
-            onClick={() => navigate('admin')}
-            className="btn btn-gray rounded-xl px-4 py-2 text-sm flex-shrink-0"
-            style={{ background: 'var(--accent)', color: 'white' }}
+            onClick={() => navigate('history')}
+            className="btn btn-yellow rounded-xl px-4 py-2 text-sm"
           >
-            ⚙️ จัดการระบบ
+            📊 ประวัติการสอบ
           </button>
-        )}
+          {isAdmin && (
+            <button
+              onClick={() => navigate('admin')}
+              className="btn rounded-xl px-4 py-2 text-sm"
+              style={{ background: 'var(--accent)', color: 'white' }}
+            >
+              ⚙️ จัดการระบบ
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Theme */}
