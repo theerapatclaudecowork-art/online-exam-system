@@ -16,6 +16,15 @@ export default function ReviewScreen() {
           return (
             <div key={i} className={ok ? 'row-correct' : 'row-wrong'}>
               <p className="font-semibold mb-1" style={{ color: 'inherit' }}>{i + 1}. {q.question}</p>
+              {q.imageUrl && (
+                <img
+                  src={q.imageUrl}
+                  alt="รูปประกอบคำถาม"
+                  className="rounded-xl mb-2 w-full object-contain"
+                  style={{ maxHeight: 200, border: '1px solid var(--input-border)' }}
+                  onError={e => { e.target.style.display = 'none'; }}
+                />
+              )}
               <p className="text-sm mb-0.5">
                 คำตอบของคุณ: <b>{user}</b>{' '}
                 {ok

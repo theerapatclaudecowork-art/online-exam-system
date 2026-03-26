@@ -9,6 +9,8 @@ import ScoreScreen         from './screens/ScoreScreen';
 import ReviewScreen        from './screens/ReviewScreen';
 import HistoryScreen       from './screens/HistoryScreen';
 import HistoryDetailScreen from './screens/HistoryDetailScreen';
+import AdminScreen         from './screens/AdminScreen';
+import QuestionManagerScreen from './screens/QuestionManagerScreen';
 import Spinner             from './components/Spinner';
 
 function Router() {
@@ -23,8 +25,10 @@ function Router() {
     quiz:          <QuizScreen />,
     score:         <ScoreScreen />,
     review:        <ReviewScreen />,
-    history:       <HistoryScreen />,
-    historyDetail: <HistoryDetailScreen />,
+    history:         <HistoryScreen />,
+    historyDetail:   <HistoryDetailScreen />,
+    admin:           <AdminScreen />,
+    questionManager: <QuestionManagerScreen />,
   };
 
   return screenMap[screen] ?? <AuthScreen />;

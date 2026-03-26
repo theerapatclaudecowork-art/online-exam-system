@@ -160,6 +160,15 @@ export default function QuizScreen() {
         <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text)', lineHeight: 1.7 }}>
           {num}. {q.question}
         </h2>
+        {q.imageUrl && (
+          <img
+            src={q.imageUrl}
+            alt="รูปประกอบคำถาม"
+            className="rounded-xl mb-4 w-full object-contain"
+            style={{ maxHeight: 256, border: '1px solid var(--input-border)' }}
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+        )}
 
         {/* Options */}
         <div className="space-y-3 mb-6">

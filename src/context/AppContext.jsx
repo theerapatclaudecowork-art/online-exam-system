@@ -9,6 +9,7 @@ export function AppProvider({ children }) {
   // ── User ──
   const [profile, setProfile]   = useState(null); // LINE profile
   const [lineEmail, setLineEmail] = useState(null);
+  const [isAdmin, setIsAdmin]   = useState(false);
 
   // ── Theme ──
   const [theme, setThemeState] = useState(() => localStorage.getItem('quiz-theme') || '');
@@ -52,6 +53,7 @@ export function AppProvider({ children }) {
       screen, navigate,
       profile, setProfile,
       lineEmail, setLineEmail,
+      isAdmin, setIsAdmin,
       theme, setTheme,
       settings, setSettings,
       exam, setExam,

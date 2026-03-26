@@ -8,7 +8,7 @@ const SPREADSHEET_ID  = '1mGAK8fLXEfMAQbqKXD35c5JIOzKQGKtCguM-SmrcutA';
 
 const SHEET_USERS     = 'Users';
 // Users  → A:lineUserId | B:lineDisplayName | C:status(active/inactive/pending)
-//          D:fullName   | E:email           | F:phone | G:studentId | H:pictureUrl | I:วันที่สมัคร
+//          D:fullName   | E:email           | F:phone | G:studentId | H:pictureUrl | I:วันที่สมัคร | J:role(admin/'')
 
 const SHEET_QUESTIONS = 'Questions';
 // Questions → A:id | B:คำถาม | C:ก | D:ข | E:ค | F:ง | G:คำตอบ(ข้อความ) | H:คำอธิบาย | I:หมวดหมู่
@@ -50,6 +50,15 @@ function route(action, params, body) {
       case 'saveResult':       return json(saveResult(body || params));
       case 'getHistory':       return json(getHistory(params.userId));
       case 'getHistoryDetail': return json(getHistoryDetail(params.examId));
+      case 'getAdminStats':    return json(getAdminStats(params.userId));
+      case 'getMembers':       return json(getMembers(params.userId));
+      case 'updateMember':     return json(updateMember(body));
+      case 'deleteMember':     return json(deleteMember(body));
+      case 'getAllResults':     return json(getAllResults(params.userId, params.page));
+      case 'getAllQuestions':   return json(getAllQuestions(params.userId));
+      case 'addQuestion':      return json(addQuestion(body));
+      case 'updateQuestion':   return json(updateQuestion(body));
+      case 'deleteQuestion':   return json(deleteQuestion(body));
       default:                 return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -80,7 +89,8 @@ function checkUser(lineUserId) {
 
     if (uid !== String(lineUserId).trim()) continue;
 
-    if (status === 'active')  return { success: true,  status: 'active',   user: { lineUserId: uid, name } };
+    const role = String(rows[i][9] || '').toLowerCase().trim();
+    if (status === 'active')  return { success: true,  status: 'active',   user: { lineUserId: uid, name }, role: role === 'admin' ? 'admin' : 'user' };
     if (status === 'pending') return { success: false, status: 'pending',  message: 'รอการอนุมัติจากผู้ดูแลระบบ' };
     return { success: false, status: 'inactive', message: 'บัญชีนี้ถูกระงับ กรุณาติดต่อแอดมิน' };
   }
@@ -157,7 +167,7 @@ function getQuestions(lesson) {
   const questions = [];
 
   for (let i = 1; i < rows.length; i++) {
-    const [id, question, a, b, c, d, answer, explanation, subject] = rows[i];
+    const [id, question, a, b, c, d, answer, explanation, subject, imageUrl] = rows[i];
     if (!question) continue;
     if (lesson && String(subject || '').trim() !== String(lesson).trim()) continue;
 
@@ -171,6 +181,7 @@ function getQuestions(lesson) {
       options,
       answer:      String(answer || '').trim(),
       explanation: String(explanation || 'ไม่มีคำอธิบาย'),
+      imageUrl:    String(imageUrl || '').trim(),
     });
   }
   return questions;
@@ -297,6 +308,223 @@ function getHistoryDetail(examId) {
   }
 
   return { success: false, message: 'ไม่พบการสอบ examId: ' + examId };
+}
+
+// ─────────────────────────────────────────
+//  Admin Functions
+// ─────────────────────────────────────────
+function isAdmin(userId) {
+  if (!userId) return false;
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return false;
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(userId).trim()) {
+      return String(rows[i][9] || '').toLowerCase().trim() === 'admin';
+    }
+  }
+  return false;
+}
+
+function getAdminStats(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const users = getSheet(SHEET_USERS);
+  const questions = getSheet(SHEET_QUESTIONS);
+  const results = getSheet(SHEET_RESULTS);
+
+  const userRows = users ? users.getDataRange().getValues().slice(1) : [];
+  const totalMembers = userRows.length;
+  const activeMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'active').length;
+  const pendingMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'pending').length;
+  const inactiveMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'inactive').length;
+
+  const qRows = questions ? questions.getDataRange().getValues().slice(1).filter(r => r[1]) : [];
+  const totalQuestions = qRows.length;
+  const subjects = {};
+  qRows.forEach(r => {
+    const s = String(r[8] || '').trim();
+    if (s) subjects[s] = (subjects[s] || 0) + 1;
+  });
+
+  const rRows = results ? results.getDataRange().getValues().slice(1) : [];
+  const totalExams = rRows.length;
+  const passCount = rRows.filter(r => String(r[8]) === 'ผ่าน').length;
+  const avgPassRate = totalExams > 0 ? Math.round((passCount / totalExams) * 100) : 0;
+
+  // subject stats
+  const subjectMap = {};
+  rRows.forEach(r => {
+    const s = String(r[4] || '').trim();
+    if (!s) return;
+    if (!subjectMap[s]) subjectMap[s] = { count: 0, pass: 0 };
+    subjectMap[s].count++;
+    if (String(r[8]) === 'ผ่าน') subjectMap[s].pass++;
+  });
+  const subjectStats = Object.entries(subjectMap)
+    .map(([name, v]) => ({ name, count: v.count, passRate: Math.round((v.pass / v.count) * 100) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return { success: true, totalMembers, activeMembers, pendingMembers, inactiveMembers, totalQuestions, totalExams, avgPassRate, subjectStats };
+}
+
+function getMembers(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: true, members: [] };
+  const rows = sheet.getDataRange().getValues();
+  const members = [];
+  for (let i = 1; i < rows.length; i++) {
+    members.push({
+      lineUserId:  String(rows[i][0] || ''),
+      displayName: String(rows[i][1] || ''),
+      status:      String(rows[i][2] || ''),
+      fullName:    String(rows[i][3] || ''),
+      email:       String(rows[i][4] || ''),
+      phone:       String(rows[i][5] || ''),
+      studentId:   String(rows[i][6] || ''),
+      pictureUrl:  String(rows[i][7] || ''),
+      joinDate:    formatDate(rows[i][8]),
+      role:        String(rows[i][9] || ''),
+      rowIndex:    i + 1,
+    });
+  }
+  return { success: true, members };
+}
+
+function updateMember(body) {
+  const { callerUserId, targetUserId, newStatus } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId || !newStatus) return { success: false, message: 'ข้อมูลไม่ครบ' };
+  const allowed = ['active', 'inactive', 'pending'];
+  if (!allowed.includes(newStatus)) return { success: false, message: 'สถานะไม่ถูกต้อง' };
+
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(targetUserId).trim()) {
+      sheet.getRange(i + 1, 3).setValue(newStatus);
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบผู้ใช้' };
+}
+
+function deleteMember(body) {
+  const { callerUserId, targetUserId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ targetUserId' };
+  if (callerUserId === targetUserId) return { success: false, message: 'ไม่สามารถลบตัวเองได้' };
+
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(targetUserId).trim()) {
+      if (String(rows[i][9]).toLowerCase().trim() === 'admin') {
+        return { success: false, message: 'ไม่สามารถลบแอดมินได้' };
+      }
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบผู้ใช้' };
+}
+
+function getAllResults(callerUserId, page) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet = getSheet(SHEET_RESULTS);
+  if (!sheet) return { success: true, results: [], total: 0 };
+
+  const allRows = sheet.getDataRange().getValues().slice(1).reverse();
+  const total = allRows.length;
+  const pageNum = Math.max(0, parseInt(page) || 0);
+  const pageSize = 50;
+  const rows = allRows.slice(pageNum * pageSize, (pageNum + 1) * pageSize);
+
+  const results = rows.map(r => ({
+    date:     formatDate(r[0]),
+    userId:   String(r[1] || ''),
+    name:     String(r[2] || ''),
+    lesson:   String(r[4] || ''),
+    score:    Number(r[5] || 0),
+    total:    Number(r[6] || 0),
+    pct:      String(r[7] || '0%'),
+    pass:     String(r[8] || ''),
+    timeUsed: Number(r[9] || 0),
+    examId:   String(r[10] || ''),
+  }));
+
+  return { success: true, results, total, pages: Math.ceil(total / pageSize) };
+}
+
+function getAllQuestions(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet = getSheet(SHEET_QUESTIONS);
+  if (!sheet) return { success: true, questions: [] };
+  const rows = sheet.getDataRange().getValues().slice(1);
+  const questions = rows
+    .filter(r => r[1])
+    .map((r, i) => ({
+      rowIndex:    i + 2,
+      id:          String(r[0] || ''),
+      question:    String(r[1] || ''),
+      a:           String(r[2] || ''),
+      b:           String(r[3] || ''),
+      c:           String(r[4] || ''),
+      d:           String(r[5] || ''),
+      answer:      String(r[6] || ''),
+      explanation: String(r[7] || ''),
+      subject:     String(r[8] || ''),
+      imageUrl:    String(r[9] || ''),
+    }));
+  return { success: true, questions };
+}
+
+function addQuestion(body) {
+  const { callerUserId, question, a, b, c, d, answer, explanation, subject, imageUrl } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!question || !a || !answer || !subject) return { success: false, message: 'กรุณากรอกข้อมูลให้ครบ' };
+  const sheet = getSheet(SHEET_QUESTIONS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const id = 'Q' + Date.now();
+  sheet.appendRow([id, question, a, b||'', c||'', d||'', answer, explanation||'', subject, imageUrl||'']);
+  return { success: true, id };
+}
+
+function updateQuestion(body) {
+  const { callerUserId, id, question, a, b, c, d, answer, explanation, subject, imageUrl } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!id) return { success: false, message: 'ไม่พบ id' };
+  const sheet = getSheet(SHEET_QUESTIONS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(id).trim()) {
+      sheet.getRange(i + 1, 2, 1, 9).setValues([[
+        question, a, b||'', c||'', d||'', answer, explanation||'', subject, imageUrl||''
+      ]]);
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบข้อสอบ id: ' + id };
+}
+
+function deleteQuestion(body) {
+  const { callerUserId, id } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!id) return { success: false, message: 'ไม่พบ id' };
+  const sheet = getSheet(SHEET_QUESTIONS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(id).trim()) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบข้อสอบ' };
 }
 
 // ─────────────────────────────────────────

@@ -14,7 +14,7 @@ const TIMER_PRESETS = [10, 15, 30, 60, 90];
 const Q_PRESETS     = [10, 20, 30, 50];
 
 export default function SetupScreen() {
-  const { navigate, profile, theme, setTheme, settings, setSettings } = useApp();
+  const { navigate, profile, theme, setTheme, settings, setSettings, isAdmin } = useApp();
 
   const [timerOn,   setTimerOn]   = useState(settings.useTimer);
   const [timerMin,  setTimerMin]  = useState(settings.timerMin);
@@ -56,6 +56,15 @@ export default function SetupScreen() {
         >
           📊 ประวัติการสอบ
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => navigate('admin')}
+            className="btn btn-gray rounded-xl px-4 py-2 text-sm flex-shrink-0"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          >
+            ⚙️ จัดการระบบ
+          </button>
+        )}
       </div>
 
       {/* Theme */}

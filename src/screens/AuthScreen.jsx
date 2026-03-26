@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { apiGet } from '../utils/api';
 
 export default function AuthScreen() {
-  const { navigate, setProfile, setLineEmail } = useApp();
+  const { navigate, setProfile, setLineEmail, setIsAdmin } = useApp();
   const [msg, setMsg] = useState('กำลังเชื่อมต่อ LINE...');
 
   useEffect(() => {
@@ -63,6 +63,7 @@ export default function AuthScreen() {
           return;
         }
 
+        if (data.role === 'admin') setIsAdmin(true);
         navigate('setup');
       } catch (e) {
         console.error(e);
