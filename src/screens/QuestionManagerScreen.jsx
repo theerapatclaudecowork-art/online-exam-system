@@ -103,7 +103,7 @@ export default function QuestionManagerScreen() {
   // ── Form Modal ─────────────────────────────────
   if (showForm) {
     return (
-      <div className="quiz-card rounded-2xl p-5 sm:p-7 animate-fade">
+      <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-fade">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>
             {isEdit ? '✏️ แก้ไขข้อสอบ' : '➕ เพิ่มข้อสอบใหม่'}
@@ -160,7 +160,7 @@ export default function QuestionManagerScreen() {
                     type="button"
                     disabled={!val}
                     onClick={() => setForm(p => ({ ...p, answer: val }))}
-                    className="btn rounded-xl px-4 py-2 text-sm"
+                    className="btn rounded-xl px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
                     style={{
                       background: selected ? 'var(--accent)' : 'var(--input-bg)',
                       color: selected ? 'white' : 'var(--text)',
@@ -183,8 +183,8 @@ export default function QuestionManagerScreen() {
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button className="btn btn-gray flex-1 rounded-xl py-3" onClick={() => setShowForm(false)}>ยกเลิก</button>
-            <button className="btn btn-primary flex-1 rounded-xl py-3" onClick={handleSave} disabled={saving}>
+            <button className="btn btn-gray flex-1 rounded-xl py-2.5 text-sm" onClick={() => setShowForm(false)}>ยกเลิก</button>
+            <button className="btn btn-primary flex-1 rounded-xl py-2.5 text-sm" onClick={handleSave} disabled={saving}>
               {saving ? 'กำลังบันทึก...' : (isEdit ? '💾 บันทึกการแก้ไข' : '✅ เพิ่มข้อสอบ')}
             </button>
           </div>
@@ -197,25 +197,25 @@ export default function QuestionManagerScreen() {
   return (
     <div className="animate-fade">
       {/* Header */}
-      <div className="quiz-card no-hover rounded-2xl p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
+      <div className="quiz-card no-hover rounded-2xl p-3 sm:p-4 mb-4">
+        <div className="flex items-start justify-between gap-2 mb-3">
           <div>
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>📚 จัดการข้อสอบ</h2>
+            <h2 className="text-base sm:text-lg font-bold" style={{ color: 'var(--text)' }}>📚 จัดการข้อสอบ</h2>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{filtered.length} / {questions.length} ข้อ</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0">
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={loadAll}>🔄</button>
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('admin')}>← กลับ</button>
           </div>
         </div>
 
         {/* Filter & Search */}
-        <div className="flex gap-2 flex-wrap mb-3">
-          <select className="themed-input flex-1" style={{ minWidth: 120 }} value={filterSubject} onChange={e => setFilterSubject(e.target.value)}>
+        <div className="flex flex-col sm:flex-row gap-2 mb-3">
+          <select className="themed-input w-full" value={filterSubject} onChange={e => setFilterSubject(e.target.value)}>
             <option value="">ทุกวิชา</option>
             {subjects.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <input className="themed-input flex-1" style={{ minWidth: 150 }} placeholder="🔍 ค้นหาคำถาม..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input className="themed-input w-full" placeholder="🔍 ค้นหาคำถาม..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
         <button className="btn btn-primary w-full rounded-xl py-2.5 text-sm" onClick={openAdd}>
@@ -229,7 +229,7 @@ export default function QuestionManagerScreen() {
       ) : (
         <div className="space-y-3 mb-4">
           {filtered.map((q, i) => (
-            <div key={q.id} className="quiz-card rounded-xl p-4" style={{ cursor: 'default' }}>
+            <div key={q.id} className="quiz-card rounded-xl p-3 sm:p-4" style={{ cursor: 'default' }}>
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex-1">
                   <span className="text-xs px-2 py-0.5 rounded-full mr-2" style={{ background: 'var(--opt-hover)', color: 'var(--accent)' }}>{q.subject}</span>

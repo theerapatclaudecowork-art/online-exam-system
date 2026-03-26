@@ -56,9 +56,9 @@ export default function HistoryScreen() {
     <div className="animate-fade">
 
       {/* Summary */}
-      <div className="quiz-card no-hover rounded-2xl p-5 mb-4">
+      <div className="quiz-card no-hover rounded-2xl p-4 sm:p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>📊 ประวัติการสอบ</h2>
+          <h2 className="text-base sm:text-lg font-bold" style={{ color: 'var(--text)' }}>📊 ประวัติการสอบ</h2>
           <div className="flex gap-2">
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={load}>🔄</button>
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
@@ -72,7 +72,7 @@ export default function HistoryScreen() {
             { val: passRate + '%', label: 'อัตราผ่าน', color: '#d97706' },
           ].map(s => (
             <div key={s.label} className="stat-box">
-              <div className="text-2xl font-black" style={{ color: s.color }}>{s.val}</div>
+              <div className="text-xl sm:text-2xl font-black" style={{ color: s.color }}>{s.val}</div>
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
             </div>
           ))}
@@ -82,7 +82,7 @@ export default function HistoryScreen() {
       {/* Filter */}
       <div className="quiz-card no-hover rounded-2xl px-4 py-3 mb-4">
         <div className="flex items-center gap-3">
-          <span style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>กรองวิชา</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>กรองวิชา</span>
           <select
             className="themed-input" style={{ flex: 1 }}
             value={filter} onChange={e => setFilter(e.target.value)}
@@ -112,8 +112,8 @@ export default function HistoryScreen() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>{p}%</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{h.score}/{h.total} ข้อ • ⏱ {min}:{sec}</div>
+                  <div className="text-xl sm:text-2xl" style={{ fontWeight: 800, color: 'var(--accent)' }}>{p}%</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{h.score}/{h.total} ข้อ • ⏱ {min}:{sec}</div>
                 </div>
                 <div style={{ flex: 1, maxWidth: 120, marginLeft: 16 }}>
                   <div style={{ background: 'var(--progress-trk)', borderRadius: 999, height: 8, overflow: 'hidden' }}>

@@ -68,12 +68,12 @@ export default function ScoreScreen() {
   const sec   = String(exam.timeUsed % 60).padStart(2, '0');
 
   return (
-    <div className="quiz-card rounded-2xl p-7 animate-fade">
+    <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-fade">
       <div className="text-center">
 
         {/* Donut */}
-        <div className="relative w-36 h-36 mx-auto mb-4">
-          <svg viewBox="0 0 100 100" width="144" height="144">
+        <div className="relative w-28 h-28 sm:w-36 sm:h-36 mx-auto mb-4">
+          <svg viewBox="0 0 100 100" className="w-full h-full">
             <circle cx="50" cy="50" r="40" fill="none" stroke="var(--progress-trk)" strokeWidth="10" />
             <circle
               ref={arcRef} cx="50" cy="50" r="40" fill="none"
@@ -83,12 +83,12 @@ export default function ScoreScreen() {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="text-2xl font-extrabold" style={{ color }}>{pct}%</div>
+            <div className="text-xl sm:text-2xl font-extrabold" style={{ color }}>{pct}%</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{exam.score}/{tot}</div>
           </div>
         </div>
 
-        <div className="text-xl font-bold mb-1" style={{ color: 'var(--text)' }}>
+        <div className="text-base sm:text-xl font-bold mb-1" style={{ color: 'var(--text)' }}>
           {pass ? '🎉 ยินดีด้วย!' : '😢 เสียใจด้วย'}
         </div>
         <div className="inline-block px-5 py-1 rounded-full text-sm font-semibold mb-1"
@@ -102,28 +102,28 @@ export default function ScoreScreen() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="stat-box">
-            <div className="text-2xl font-black" style={{ color: 'var(--accent)' }}>{exam.score}</div>
+            <div className="text-xl sm:text-2xl font-black" style={{ color: 'var(--accent)' }}>{exam.score}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ถูก</div>
           </div>
           <div className="stat-box">
-            <div className="text-2xl font-black text-red-500">{tot - exam.score}</div>
+            <div className="text-xl sm:text-2xl font-black text-red-500">{tot - exam.score}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ผิด</div>
           </div>
           <div className="stat-box">
-            <div className="text-2xl font-black text-yellow-500">{min}:{sec}</div>
+            <div className="text-xl sm:text-2xl font-black text-yellow-500">{min}:{sec}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>เวลาที่ใช้</div>
           </div>
         </div>
 
         {/* Actions */}
         <div className="space-y-3">
-          <button className="btn btn-blue w-full rounded-xl py-3"    onClick={() => navigate('review')}>
+          <button className="btn btn-blue w-full rounded-xl py-2.5 text-sm"    onClick={() => navigate('review')}>
             🔍 ดูเฉลยทุกข้อ
           </button>
-          <button className="btn btn-primary w-full rounded-xl py-3" onClick={() => navigate('quiz')}>
+          <button className="btn btn-primary w-full rounded-xl py-2.5 text-sm" onClick={() => navigate('quiz')}>
             🔄 สอบใหม่วิชาเดิม
           </button>
-          <button className="btn btn-gray w-full rounded-xl py-3"    onClick={() => navigate('setup')}>
+          <button className="btn btn-gray w-full rounded-xl py-2.5 text-sm"    onClick={() => navigate('setup')}>
             📚 เลือกวิชาใหม่
           </button>
         </div>

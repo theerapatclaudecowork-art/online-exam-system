@@ -124,14 +124,14 @@ export default function QuizScreen() {
   return (
     <div className="animate-fade">
       {/* Sticky Header */}
-      <div className="exam-header rounded-t-2xl px-5 py-3">
+      <div className="exam-header rounded-t-2xl px-3 sm:px-5 py-2 sm:py-3">
         <div className="flex items-center justify-between mb-2">
-          <div>
-            <div className="font-bold text-base" style={{ color: 'var(--header-text)' }}>{exam.lesson}</div>
-            <div style={{ fontSize: 11, opacity: .75, color: 'var(--header-text)' }}>{profile?.displayName}</div>
+          <div className="flex-1 min-w-0 mr-2">
+            <div className="font-bold text-sm sm:text-base truncate" style={{ color: 'var(--header-text)' }}>{exam.lesson}</div>
+            <div style={{ fontSize: 10, opacity: .75, color: 'var(--header-text)' }}>{profile?.displayName}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <img src={profile?.pictureUrl} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-white border-opacity-40" />
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+            <img src={profile?.pictureUrl} alt="" className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-white border-opacity-40" />
             {settings.useTimer && (
               <div className={`timer-pill ${timerCls}`}>⏱ {formatTime(timeLeft)}</div>
             )}
@@ -143,7 +143,7 @@ export default function QuizScreen() {
           <div className="flex-1 rounded-full h-2" style={{ background: 'rgba(255,255,255,.25)' }}>
             <div className="q-progress-fill rounded-full h-2" style={{ width: `${(num / tot) * 100}%` }} />
           </div>
-          <span style={{ fontSize: 12, color: 'var(--header-text)', opacity: .85, fontWeight: 600 }}>{num}/{tot}</span>
+          <span style={{ fontSize: 11, color: 'var(--header-text)', opacity: .85, fontWeight: 600 }}>{num}/{tot}</span>
         </div>
 
         {/* Timer Progress Bar */}
@@ -155,9 +155,9 @@ export default function QuizScreen() {
       </div>
 
       {/* Body */}
-      <div className="quiz-card rounded-b-2xl p-5 sm:p-7 animate-fade" style={{ borderTop: 'none', borderRadius: '0 0 1rem 1rem' }}>
+      <div className="quiz-card rounded-b-2xl p-4 sm:p-5 lg:p-7 animate-fade" style={{ borderTop: 'none', borderRadius: '0 0 1rem 1rem' }}>
         {/* Question */}
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text)', lineHeight: 1.7 }}>
+        <h2 className="text-base sm:text-lg font-semibold mb-4" style={{ color: 'var(--text)', lineHeight: 1.7 }}>
           {num}. {q.question}
         </h2>
         {q.imageUrl && (
@@ -177,7 +177,7 @@ export default function QuizScreen() {
             return (
               <div
                 key={i}
-                className={`option-card p-4 rounded-xl ${sel ? 'selected' : ''}`}
+                className={`option-card p-3 sm:p-4 rounded-xl ${sel ? 'selected' : ''}`}
                 onClick={() => selectOpt(i)}
               >
                 <div className="flex items-start gap-3">
@@ -197,16 +197,16 @@ export default function QuizScreen() {
         {/* Navigation Buttons */}
         <div className="flex gap-3">
           {idx > 0 && (
-            <button className="btn btn-gray flex-1 rounded-xl py-3" onClick={prevQ}>
+            <button className="btn btn-gray flex-1 rounded-xl py-2.5 sm:py-3 text-sm" onClick={prevQ}>
               ← ย้อนกลับ
             </button>
           )}
           {idx < tot - 1 ? (
-            <button className="btn btn-primary flex-1 rounded-xl py-3" onClick={nextQ}>
+            <button className="btn btn-primary flex-1 rounded-xl py-2.5 sm:py-3 text-sm" onClick={nextQ}>
               ถัดไป →
             </button>
           ) : (
-            <button className="btn btn-green flex-1 rounded-xl py-3" onClick={confirmSubmit}>
+            <button className="btn btn-green flex-1 rounded-xl py-2.5 sm:py-3 text-sm" onClick={confirmSubmit}>
               ✓ ส่งคำตอบ
             </button>
           )}

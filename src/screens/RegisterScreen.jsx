@@ -77,17 +77,17 @@ export default function RegisterScreen() {
   }
 
   return (
-    <div className="quiz-card no-hover rounded-2xl p-6 sm:p-8 animate-fade">
+    <div className="quiz-card no-hover rounded-2xl p-4 sm:p-6 lg:p-8 animate-fade">
 
       {/* Header */}
       <div className="text-center mb-6">
         <img
           src={profile?.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
           alt="profile"
-          className="w-20 h-20 rounded-full object-cover shadow-md mx-auto mb-3"
+          className="w-16 h-16 rounded-full object-cover shadow-md mx-auto mb-3"
         />
-        <h1 className="text-xl font-bold" style={{ color: 'var(--text)' }}>สมัครสมาชิก</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+        <h1 className="text-lg sm:text-xl font-bold" style={{ color: 'var(--text)' }}>สมัครสมาชิก</h1>
+        <p className="text-xs sm:text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
           กรอกข้อมูลเพื่อเข้าใช้งานระบบข้อสอบ
         </p>
       </div>

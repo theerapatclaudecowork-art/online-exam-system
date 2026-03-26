@@ -142,13 +142,13 @@ export default function AdminScreen() {
   return (
     <div className="animate-fade">
       {/* Header */}
-      <div className="quiz-card no-hover rounded-2xl p-4 mb-4">
-        <div className="flex items-center justify-between">
+      <div className="quiz-card no-hover rounded-2xl p-3 sm:p-4 mb-4">
+        <div className="flex items-start justify-between gap-2">
           <div>
-            <h1 className="text-lg font-bold" style={{ color: 'var(--text)' }}>⚙️ จัดการระบบ</h1>
+            <h1 className="text-base sm:text-lg font-bold" style={{ color: 'var(--text)' }}>⚙️ จัดการระบบ</h1>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Admin Panel</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end flex-shrink-0">
             <button className="btn btn-primary text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('questionManager')}>📚 จัดการข้อสอบ</button>
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
           </div>
@@ -160,7 +160,7 @@ export default function AdminScreen() {
         {TABS.map(t => (
           <button
             key={t.key}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all"
+            className="flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all"
             style={{
               background: tab === t.key ? 'var(--accent)' : 'var(--card)',
               color: tab === t.key ? 'white' : 'var(--text-muted)',
@@ -190,7 +190,7 @@ export default function AdminScreen() {
                   { val: stats.avgPassRate + '%',    label: 'อัตราผ่านเฉลี่ย',  color: '#ec4899' },
                 ].map(s => (
                   <div key={s.label} className="stat-box">
-                    <div className="text-2xl font-black" style={{ color: s.color }}>{s.val}</div>
+                    <div className="text-xl sm:text-2xl font-black" style={{ color: s.color }}>{s.val}</div>
                     <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
                   </div>
                 ))}
@@ -271,8 +271,8 @@ export default function AdminScreen() {
                     <div className="flex items-center gap-3 mb-2">
                       <div className="relative flex-shrink-0">
                         {pic
-                          ? <img src={pic} alt="" className="w-12 h-12 rounded-full object-cover" />
-                          : <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={{ background: 'var(--input-bg)' }}>👤</div>
+                          ? <img src={pic} alt="" className="w-10 h-10 rounded-full object-cover" />
+                          : <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg" style={{ background: 'var(--input-bg)' }}>👤</div>
                         }
                         {lp && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white" title="ข้อมูลล่าสุดจาก LINE" />}
                       </div>
@@ -311,7 +311,7 @@ export default function AdminScreen() {
                     </div>
 
                     {/* LINE ID */}
-                    <div className="text-xs mb-3 px-1 py-1 rounded-lg" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px', wordBreak: 'break-all' }}>
+                    <div className="mb-3 px-1 py-1 rounded-lg" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '10px', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
                       LINE ID: {m.lineUserId}
                     </div>
 
@@ -338,7 +338,7 @@ export default function AdminScreen() {
       {/* ── Results Tab ───────────────────────────── */}
       {tab === 'results' && (
         <div className="animate-fade">
-          <div className="quiz-card no-hover rounded-2xl p-3 mb-3 flex gap-2">
+          <div className="quiz-card no-hover rounded-2xl p-2 sm:p-3 mb-3 flex gap-2">
             <input className="themed-input flex-1" placeholder="🔍 ค้นหาชื่อ / วิชา..." value={resultSearch} onChange={e => setResultSearch(e.target.value)} />
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => loadResults(0)}>🔄</button>
           </div>
@@ -353,16 +353,16 @@ export default function AdminScreen() {
                   const pct = parseInt(r.pct);
                   const pass = r.pass === 'ผ่าน';
                   return (
-                    <div key={r.examId} className="quiz-card no-hover rounded-xl p-3" style={{ cursor: 'default' }}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-sm" style={{ color: 'var(--text)' }}>{r.name}</span>
+                    <div key={r.examId} className="quiz-card no-hover rounded-xl p-2 sm:p-3" style={{ cursor: 'default' }}>
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <span className="font-semibold text-xs sm:text-sm truncate" style={{ color: 'var(--text)' }}>{r.name}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: pass ? '#dcfce7' : '#fee2e2', color: pass ? '#15803d' : '#b91c1c' }}>
                           {pass ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}
                         </span>
                       </div>
                       <div className="text-xs mb-1" style={{ color: 'var(--accent)' }}>{r.lesson}</div>
                       <div className="flex items-center gap-3">
-                        <span className="text-xl font-black" style={{ color: pass ? '#16a34a' : '#ef4444' }}>{pct}%</span>
+                        <span className="text-base sm:text-xl font-black flex-shrink-0" style={{ color: pass ? '#16a34a' : '#ef4444' }}>{pct}%</span>
                         <div className="flex-1">
                           <div style={{ background: 'var(--progress-trk)', borderRadius: 999, height: 5, overflow: 'hidden' }}>
                             <div style={{ width: `${pct}%`, height: '100%', background: pass ? '#22c55e' : '#ef4444', borderRadius: 999 }} />

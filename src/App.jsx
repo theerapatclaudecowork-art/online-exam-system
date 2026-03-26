@@ -42,8 +42,8 @@ function AppShell() {
   }, [theme]);
 
   return (
-    <div style={{ background: 'var(--bg)', minHeight: '100vh' }} className="py-6 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
+    <div style={{ background: 'var(--bg)', minHeight: '100vh' }} className="py-3 px-3 sm:py-6 sm:px-4 lg:px-8">
+      <div className="max-w-3xl mx-auto w-full">
         <Router />
         <footer className="text-center mt-8 text-xs" style={{ color: 'var(--text-muted)' }}>
           © 2025 ระบบข้อสอบออนไลน์

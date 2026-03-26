@@ -37,35 +37,35 @@ export default function SetupScreen() {
   }
 
   return (
-    <div className="quiz-card rounded-2xl p-6 sm:p-8 animate-fade">
+    <div className="quiz-card rounded-2xl p-4 sm:p-6 lg:p-8 animate-fade">
 
       {/* Profile Row */}
-      <div className="flex items-center gap-4 pb-5 mb-5" style={{ borderBottom: '1px solid var(--input-border)' }}>
+      <div className="flex items-start gap-3 pb-5 mb-5" style={{ borderBottom: '1px solid var(--input-border)' }}>
         <img
           src={profile?.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
           alt="avatar"
-          className="w-16 h-16 rounded-full object-cover shadow-md flex-shrink-0"
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover shadow-md flex-shrink-0"
         />
-        <div className="flex-1">
-          <div className="font-bold text-lg" style={{ color: 'var(--text)' }}>{profile?.displayName}</div>
-          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>พร้อมทำแบบทดสอบ</div>
-        </div>
-        <div className="flex flex-col gap-2 flex-shrink-0">
-          <button
-            onClick={() => navigate('history')}
-            className="btn btn-yellow rounded-xl px-4 py-2 text-sm"
-          >
-            📊 ประวัติการสอบ
-          </button>
-          {isAdmin && (
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-base sm:text-lg truncate" style={{ color: 'var(--text)' }}>{profile?.displayName}</div>
+          <div className="text-xs sm:text-sm" style={{ color: 'var(--text-muted)' }}>พร้อมทำแบบทดสอบ</div>
+          <div className="flex gap-2 mt-2 flex-wrap">
             <button
-              onClick={() => navigate('admin')}
-              className="btn rounded-xl px-4 py-2 text-sm"
-              style={{ background: 'var(--accent)', color: 'white' }}
+              onClick={() => navigate('history')}
+              className="btn btn-yellow rounded-xl px-3 py-1.5 text-xs sm:text-sm"
             >
-              ⚙️ จัดการระบบ
+              📊 ประวัติการสอบ
             </button>
-          )}
+            {isAdmin && (
+              <button
+                onClick={() => navigate('admin')}
+                className="btn rounded-xl px-3 py-1.5 text-xs sm:text-sm"
+                style={{ background: 'var(--accent)', color: 'white' }}
+              >
+                ⚙️ จัดการระบบ
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -150,7 +150,7 @@ export default function SetupScreen() {
         </div>
       </div>
 
-      <button className="btn btn-primary w-full rounded-xl py-4 text-lg" onClick={goToSubject}>
+      <button className="btn btn-primary w-full rounded-xl py-3 sm:py-4 text-base sm:text-lg" onClick={goToSubject}>
         ▶&nbsp; เลือกวิชาและเริ่มสอบ
       </button>
     </div>
