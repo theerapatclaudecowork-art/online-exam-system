@@ -42,6 +42,9 @@ export function AppProvider({ children }) {
     detail: [],  // [{question,userAnswer,correctAnswer,isRight,explanation}]
   });
 
+  // ── Prefetched subjects (เก็บจาก initApp เพื่อไม่ต้อง fetch ซ้ำ) ──
+  const [subjects, setSubjects] = useState([]);
+
   // ── History ──
   const [historyList, setHistoryList]     = useState([]);
   const [historyDetail, setHistoryDetail] = useState(null); // { exam, detail }
@@ -57,6 +60,7 @@ export function AppProvider({ children }) {
       theme, setTheme,
       settings, setSettings,
       exam, setExam,
+      subjects, setSubjects,
       historyList, setHistoryList,
       historyDetail, setHistoryDetail,
     }}>

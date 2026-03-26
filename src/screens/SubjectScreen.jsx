@@ -1,24 +1,34 @@
 import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
-import { apiGet } from '../utils/api';
+import { apiGet, apiGetCached } from '../utils/api';
 import Spinner from '../components/Spinner';
 
+const Q_CACHE_TTL = 3 * 60 * 1000; // 3 นาที
+
 export default function SubjectScreen() {
-  const { navigate, settings, exam, setExam } = useApp();
-  const [subjects, setSubjects] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const { navigate, settings, exam, setExam, subjects: ctxSubjects, setSubjects } = useApp();
+  const [subjects, setLocal]  = useState(ctxSubjects || []);
+  const [loading, setLoading] = useState(!ctxSubjects?.length);
 
   useEffect(() => {
+    // ถ้ามี subjects ใน Context อยู่แล้ว → ไม่ต้อง fetch ซ้ำ
+    if (ctxSubjects?.length) {
+      setLocal(ctxSubjects);
+      setLoading(false);
+      return;
+    }
+
     async function load() {
       try {
-        const data = await apiGet('getSubjects');
+        const data = await apiGetCached('getSubjects', {}, 5 * 60_000);
         if (!data.success || !data.subjects?.length) {
           await Swal.fire('ไม่พบรายวิชา', 'กรุณาเพิ่มข้อมูลใน Google Sheet', 'warning');
           navigate('setup');
           return;
         }
-        setSubjects(data.subjects);
+        setLocal(data.subjects);
+        setSubjects(data.subjects); // เก็บเข้า Context ด้วย
       } catch {
         await Swal.fire('เกิดข้อผิดพลาด', 'โหลดรายวิชาไม่สำเร็จ', 'error');
         navigate('setup');
@@ -32,7 +42,8 @@ export default function SubjectScreen() {
   async function pickSubject(name) {
     navigate('loading-quiz');
     try {
-      const data = await apiGet('getQuestions', { lesson: name });
+      // ใช้ cache 3 นาที สำหรับ questions ของแต่ละวิชา
+      const data = await apiGetCached('getQuestions', { lesson: name }, Q_CACHE_TTL);
       if (!Array.isArray(data) || !data.length) throw new Error('ไม่พบข้อสอบในวิชานี้');
       setExam(prev => ({ ...prev, lesson: name, allQ: data }));
       navigate('quiz');
@@ -54,10 +65,10 @@ export default function SubjectScreen() {
             key={s.name}
             className="rounded-xl p-4 text-left"
             style={{
-              background: 'var(--input-bg)',
-              border: '1.5px solid var(--input-border)',
-              cursor: 'pointer',
-              transition: 'all .2s',
+              background:  'var(--input-bg)',
+              border:      '1.5px solid var(--input-border)',
+              cursor:      'pointer',
+              transition:  'all .2s',
             }}
             onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
             onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--input-border)'; e.currentTarget.style.transform = ''; }}

@@ -44,9 +44,29 @@ function doPost(e) {
   return route(action, e.parameter, body);
 }
 
+// ─────────────────────────────────────────
+//  Cache helper (GAS CacheService)
+//  key: string, fetchFn: function → data, ttl: seconds (max 21600)
+// ─────────────────────────────────────────
+function gCache(key, fetchFn, ttl) {
+  const cache = CacheService.getScriptCache();
+  const hit   = cache.get(key);
+  if (hit) {
+    try { return JSON.parse(hit); } catch (_) {}
+  }
+  const data = fetchFn();
+  try { cache.put(key, JSON.stringify(data), ttl || 120); } catch (_) {}
+  return data;
+}
+
+function invalidateCache(key) {
+  try { CacheService.getScriptCache().remove(key); } catch (_) {}
+}
+
 function route(action, params, body) {
   try {
     switch (action) {
+      case 'initApp':          return json(initApp(params.userId));           // ← NEW: 1 call แทน 2
       case 'checkUser':        return json(checkUser(params.userId));
       case 'registerUser':     return json(registerUser(body || params));
       case 'getSubjects':      return json(getSubjects());
@@ -82,7 +102,17 @@ function json(data) {
 }
 
 // ─────────────────────────────────────────
-//  1. ตรวจสอบ LINE userId
+//  0. initApp — รวม checkUser + getSubjects ใน 1 call
+//     เพื่อลด round-trip และใช้ CacheService ร่วมกัน
+// ─────────────────────────────────────────
+function initApp(userId) {
+  const userResult     = checkUser(userId);
+  const subjectResult  = getSubjects();           // ใช้ cache ภายใน
+  return { ...userResult, subjects: subjectResult.subjects || [] };
+}
+
+// ─────────────────────────────────────────
+//  1. ตรวจสอบ LINE userId (CacheService 30s)
 // ─────────────────────────────────────────
 function checkUser(lineUserId) {
   if (!lineUserId) return { success: false, status: 'error', message: 'ไม่พบข้อมูล userId' };
@@ -90,7 +120,8 @@ function checkUser(lineUserId) {
   const sheet = getSheet(SHEET_USERS);
   if (!sheet) return { success: false, status: 'error', message: 'ไม่พบ Sheet: ' + SHEET_USERS };
 
-  const rows = sheet.getDataRange().getValues();
+  // ใช้ cache 30 วินาที (สมดุลระหว่างความเร็ว vs ข้อมูลล่าสุด)
+  const rows = gCache('users_rows', () => sheet.getDataRange().getValues(), 30);
   for (let i = 1; i < rows.length; i++) {
     const uid    = String(rows[i][0] || '').trim();
     const name   = String(rows[i][1] || '').trim();
@@ -148,9 +179,12 @@ function registerUser(data) {
 }
 
 // ─────────────────────────────────────────
-//  3. ดึงรายวิชา (unique จากคอลัมน์ I ของ Questions)
+//  3. ดึงรายวิชา (cache 5 นาที)
 // ─────────────────────────────────────────
 function getSubjects() {
+  return gCache('subjects_v1', _getSubjectsRaw, 300);
+}
+function _getSubjectsRaw() {
   const sheet = getSheet(SHEET_QUESTIONS);
   if (!sheet) return { success: false, subjects: [] };
 
@@ -159,16 +193,20 @@ function getSubjects() {
   const subjects = [];
 
   for (let i = 1; i < rows.length; i++) {
-    const cat = String(rows[i][8] || '').trim();  // col I
+    const cat = String(rows[i][8] || '').trim();
     if (cat && !seen.has(cat)) { seen.add(cat); subjects.push({ name: cat }); }
   }
   return { success: true, subjects };
 }
 
 // ─────────────────────────────────────────
-//  4. ดึงข้อสอบตามวิชา → คืน array ตรง
+//  4. ดึงข้อสอบตามวิชา (cache 3 นาที ต่อ lesson)
 // ─────────────────────────────────────────
 function getQuestions(lesson) {
+  const cacheKey = 'q_' + (lesson || '_all').replace(/\s+/g, '_').slice(0, 40);
+  return gCache(cacheKey, () => _getQuestionsRaw(lesson), 180);
+}
+function _getQuestionsRaw(lesson) {
   const sheet = getSheet(SHEET_QUESTIONS);
   if (!sheet) return [];
 
@@ -525,6 +563,7 @@ function updateMember(body) {
     if (studentId   !== undefined) sheet.getRange(row, 7).setValue(studentId);
     if (role        !== undefined) sheet.getRange(row, 10).setValue(role);
 
+    invalidateCache('users_rows'); // ล้าง cache ทันที
     return { success: true };
   }
   return { success: false, message: 'ไม่พบผู้ใช้' };
@@ -666,6 +705,7 @@ function addQuestion(body) {
   if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
   const id = 'Q' + Date.now();
   sheet.appendRow([id, question, a, b||'', c||'', d||'', answer, explanation||'', subject, imageUrl||'']);
+  _clearQuestionCache(subject);
   return { success: true, id };
 }
 
@@ -678,9 +718,12 @@ function updateQuestion(body) {
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === String(id).trim()) {
+      const oldSubject = String(rows[i][8] || '');
       sheet.getRange(i + 1, 2, 1, 9).setValues([[
         question, a, b||'', c||'', d||'', answer, explanation||'', subject, imageUrl||''
       ]]);
+      _clearQuestionCache(subject);
+      if (oldSubject && oldSubject !== subject) _clearQuestionCache(oldSubject);
       return { success: true };
     }
   }
@@ -696,11 +739,23 @@ function deleteQuestion(body) {
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === String(id).trim()) {
+      const subj = String(rows[i][8] || '');
       sheet.deleteRow(i + 1);
+      _clearQuestionCache(subj);
       return { success: true };
     }
   }
   return { success: false, message: 'ไม่พบข้อสอบ' };
+}
+
+// ล้าง cache ข้อสอบของวิชานั้น + subjects list
+function _clearQuestionCache(subject) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const keys  = ['subjects_v1'];
+    if (subject) keys.push('q_' + subject.replace(/\s+/g, '_').slice(0, 40));
+    cache.removeAll(keys);
+  } catch (_) {}
 }
 
 // ─────────────────────────────────────────

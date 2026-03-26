@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
-import { apiPost } from '../utils/api';
+import { apiPost, lsDel } from '../utils/api';
 import { AUTO_APPROVE } from '../config';
 
 export default function RegisterScreen() {
@@ -50,6 +50,9 @@ export default function RegisterScreen() {
       });
 
       if (!data.success) throw new Error(data.message || 'สมัครสมาชิกไม่สำเร็จ');
+
+      // clear user cache เพื่อให้ auth โหลดใหม่ถูกต้อง
+      lsDel('exam_init_' + (profile?.userId || ''));
 
       if (AUTO_APPROVE || data.status === 'active') {
         await Swal.fire({
