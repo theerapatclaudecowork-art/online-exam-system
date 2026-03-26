@@ -247,19 +247,6 @@ function saveResult(data) {
     sc, tot, pct + '%', pass, timeUsedNum, examId, detailStr,
   ]);
 
-  // ── Push Flex Message ผลสอบไปหา user ทาง LINE ──
-  try {
-    pushFlexResult({
-      userId:      String(userId).trim(),
-      displayName: String(displayName || ''),
-      lesson:      String(lesson).trim(),
-      score:       sc, total: tot, pct, pass,
-      timeUsed:    timeUsedNum,
-    });
-  } catch (e) {
-    console.error('pushFlexResult error:', e);
-  }
-
   return { success: true, examId };
 }
 

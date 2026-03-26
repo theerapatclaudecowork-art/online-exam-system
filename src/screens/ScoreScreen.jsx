@@ -1,28 +1,102 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiPost } from '../utils/api';
-import { formatTime } from '../utils/helpers';
 import { PASS_THRESHOLD } from '../config';
 
 const CIRCUMFERENCE = 251.2;
 
+const LINE_ICON = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
+    <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
+  </svg>
+);
+
+// สร้าง Flex Message object
+function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec }) {
+  const isPass    = pass;
+  const headerBg  = isPass ? '#16a34a' : '#dc2626';
+  const passColor = isPass ? '#16a34a' : '#dc2626';
+  const passText  = isPass ? '✅ ผ่านการสอบ' : '❌ ไม่ผ่านการสอบ';
+
+  return {
+    type: 'flex',
+    altText: `📝 ผลสอบ ${exam_stub(lesson)} : ${score}/${total} (${pct}%) ${isPass ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box', layout: 'vertical',
+        backgroundColor: headerBg,
+        paddingAll: '16px',
+        contents: [
+          { type: 'text', text: '📝 ผลการสอบ', color: '#ffffff', size: 'sm' },
+          { type: 'text', text: lesson, color: '#ffffff', weight: 'bold', size: 'lg', wrap: true },
+        ],
+      },
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'md',
+        contents: [
+          {
+            type: 'box', layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '👤 ผู้สอบ', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: displayName || 'ไม่ระบุ', size: 'sm', color: '#333333', flex: 3, align: 'end', wrap: true },
+            ],
+          },
+          {
+            type: 'box', layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '📊 คะแนน', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: `${score}/${total}  (${pct}%)`, size: 'lg', weight: 'bold', color: passColor, flex: 3, align: 'end' },
+            ],
+          },
+          {
+            type: 'box', layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '⏱ เวลา', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: `${min}:${sec}`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
+            ],
+          },
+          { type: 'separator', margin: 'md' },
+          {
+            type: 'box', layout: 'vertical', margin: 'md',
+            backgroundColor: isPass ? '#f0fdf4' : '#fef2f2',
+            cornerRadius: '10px', paddingAll: '10px',
+            contents: [
+              { type: 'text', text: passText, weight: 'bold', size: 'md', color: passColor, align: 'center' },
+              { type: 'text', text: 'เกณฑ์ผ่าน 60% ขึ้นไป', size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
+// helper ย่อ (closure workaround สำหรับ altText)
+function exam_stub(s) { return s || ''; }
+
 export default function ScoreScreen() {
   const { navigate, profile, lineEmail, exam } = useApp();
-  const arcRef    = useRef(null);
-  const savedRef  = useRef(false);
-  const [lineNotified, setLineNotified] = useState(false);
+  const arcRef   = useRef(null);
+  const savedRef = useRef(false);
+
+  // สถานะการส่ง LINE
+  const [lineStatus, setLineStatus] = useState('idle'); // idle | sending | ok | err | noClient
+  const [lineErrMsg, setLineErrMsg] = useState('');
 
   const tot  = exam.questions.length;
   const pct  = tot > 0 ? Math.round((exam.score / tot) * 100) : 0;
   const pass = pct >= PASS_THRESHOLD;
+  const min  = Math.floor(exam.timeUsed / 60);
+  const sec  = String(exam.timeUsed % 60).padStart(2, '0');
 
-  // ── animate donut & save result once ───────────────────
+  // ── บันทึกผล + ส่ง Flex Message ───────────────────────
   useEffect(() => {
     if (savedRef.current) return;
     savedRef.current = true;
 
     // Animate donut
-    const t = setTimeout(() => {
+    setTimeout(() => {
       if (arcRef.current)
         arcRef.current.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct / 100);
     }, 80);
@@ -32,7 +106,7 @@ export default function ScoreScreen() {
       confetti({ particleCount: 200, spread: 100, origin: { y: .6 } });
     }
 
-    // Save + Push Flex Message ไป LINE (backend ส่งให้เลย)
+    // 1) บันทึกผลสอบ
     apiPost({
       action:      'saveResult',
       userId:      profile?.userId      || '',
@@ -43,18 +117,52 @@ export default function ScoreScreen() {
       total:       tot,
       timeUsed:    exam.timeUsed,
       detail:      exam.detail,
-    })
-      .then(res => {
-        if (res?.success) setLineNotified(true);
-      })
-      .catch(e => console.error('saveResult error:', e));
+    }).catch(e => console.error('saveResult error:', e));
 
-    return () => clearTimeout(t);
+    // 2) ส่ง Flex Message ทาง LIFF
+    sendLineMessage();
   }, []);
 
+  // ── ฟังก์ชันส่ง LINE (แยกออกมาเพื่อกด "ส่งใหม่" ได้) ──
+  async function sendLineMessage() {
+    // ตรวจสอบว่าอยู่ใน LINE App หรือเปล่า
+    if (!window.liff?.isInClient?.()) {
+      setLineStatus('noClient');
+      return;
+    }
+
+    setLineStatus('sending');
+    try {
+      const msg = buildFlexMsg({
+        lesson:      exam.lesson,
+        displayName: profile?.displayName || '',
+        score:       exam.score,
+        total:       tot,
+        pct,
+        pass,
+        min,
+        sec,
+      });
+
+      await liff.sendMessages([msg]);
+      setLineStatus('ok');
+    } catch (e) {
+      console.error('liff.sendMessages error:', e);
+      const errTxt = String(e?.message || e || '');
+
+      // ตรวจสอบชนิด error
+      if (errTxt.toLowerCase().includes('forbidden') || errTxt.includes('403')) {
+        setLineErrMsg('ไม่มีสิทธิ์ส่งข้อความ — กรุณาเปิด scope chat_message.write ใน LINE Developer Console');
+      } else if (errTxt.includes('not in LIFF')) {
+        setLineErrMsg('ต้องเปิดผ่าน LINE App เท่านั้น');
+      } else {
+        setLineErrMsg(errTxt || 'ไม่ทราบสาเหตุ');
+      }
+      setLineStatus('err');
+    }
+  }
+
   const color = pass ? '#22c55e' : '#ef4444';
-  const min   = Math.floor(exam.timeUsed / 60);
-  const sec   = String(exam.timeUsed % 60).padStart(2, '0');
 
   return (
     <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-fade">
@@ -89,7 +197,7 @@ export default function ScoreScreen() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-5">
           <div className="stat-box">
             <div className="text-xl sm:text-2xl font-black" style={{ color: 'var(--accent)' }}>{exam.score}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ถูก</div>
@@ -104,14 +212,57 @@ export default function ScoreScreen() {
           </div>
         </div>
 
-        {/* LINE Notification badge */}
-        {lineNotified && (
-          <div className="flex items-center justify-center gap-2 text-xs py-2 px-4 rounded-full mx-auto mb-4 w-fit animate-fade"
-            style={{ background: '#e8f5e9', color: '#15803d', border: '1px solid #86efac' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="#06C755">
-              <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
-            </svg>
-            <span>ส่งผลสอบเข้า LINE ของคุณแล้ว</span>
+        {/* LINE Status ─────────────────────────── */}
+        {lineStatus === 'sending' && (
+          <div className="flex items-center justify-center gap-2 text-xs py-2 px-4 rounded-full mb-4 w-fit mx-auto animate-fade"
+            style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac' }}>
+            <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            <span>กำลังส่งผลสอบเข้า LINE...</span>
+          </div>
+        )}
+
+        {lineStatus === 'ok' && (
+          <div className="flex items-center justify-center gap-2 text-xs py-2 px-4 rounded-full mb-4 w-fit mx-auto animate-fade"
+            style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac' }}>
+            {LINE_ICON}
+            <span>ส่งผลสอบเข้าห้องแชทแล้ว ✅</span>
+          </div>
+        )}
+
+        {lineStatus === 'noClient' && (
+          <div className="text-xs py-2 px-4 rounded-xl mb-4 text-left animate-fade"
+            style={{ background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
+            ⚠️ เปิดผ่าน Browser — ไม่สามารถส่งข้อความไปยัง LINE Chat ได้
+            <br />
+            <span style={{ color: '#6b7280' }}>กรุณาเปิดผ่านแอป LINE เพื่อรับผลสอบในห้องแชท</span>
+          </div>
+        )}
+
+        {lineStatus === 'err' && (
+          <div className="rounded-xl mb-4 overflow-hidden animate-fade"
+            style={{ border: '1px solid #fca5a5' }}>
+            <div className="text-xs py-2 px-4"
+              style={{ background: '#fef2f2', color: '#b91c1c' }}>
+              <div className="font-semibold mb-1">❌ ส่งเข้า LINE ไม่สำเร็จ</div>
+              <div style={{ color: '#ef4444', wordBreak: 'break-word' }}>{lineErrMsg}</div>
+              {lineErrMsg.includes('chat_message.write') && (
+                <div className="mt-2 p-2 rounded-lg text-left"
+                  style={{ background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
+                  <b>วิธีแก้ไข:</b>
+                  <ol className="list-decimal list-inside mt-1 space-y-0.5">
+                    <li>ไปที่ LINE Developer Console</li>
+                    <li>เลือก LIFF App ของคุณ</li>
+                    <li>เปิด <b>Scopes → chat_message.write</b></li>
+                    <li>บันทึก และล็อกอินใหม่</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+            <button className="btn w-full text-xs py-2"
+              style={{ background: '#fee2e2', color: '#b91c1c' }}
+              onClick={sendLineMessage}>
+              🔄 ลองส่งใหม่
+            </button>
           </div>
         )}
 
@@ -127,6 +278,7 @@ export default function ScoreScreen() {
             📚 เลือกวิชาใหม่
           </button>
         </div>
+
       </div>
     </div>
   );
