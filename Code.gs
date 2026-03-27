@@ -107,6 +107,7 @@ function route(action, params, body) {
       case 'getTelegramConfig':      return json(getTelegramConfig(params.userId));
       case 'setTelegramConfig':      return json(setTelegramConfig(body));
       case 'testTelegramNotify':     return json(testTelegramNotify(params.userId));
+      case 'getTelegramUpdates':     return json(getTelegramUpdates(params.userId));
       default:                    return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -1276,6 +1277,54 @@ function testTelegramNotify(callerUserId) {
     success: sent,
     message: sent ? 'ส่งสำเร็จ! ตรวจสอบ Telegram ของคุณ' : 'ส่งไม่สำเร็จ — ตรวจสอบ Bot Token และ Chat ID',
   };
+}
+
+// ── ดึง Chat ID จาก getUpdates (ช่วย debug) ─────────────────
+function getTelegramUpdates(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const token = props.getProperty('TG_BOT_TOKEN') || '';
+    if (!token) return { success: false, message: 'ยังไม่ได้ตั้งค่า Bot Token' };
+
+    const res    = UrlFetchApp.fetch(
+      'https://api.telegram.org/bot' + token + '/getUpdates?limit=10',
+      { muteHttpExceptions: true }
+    );
+    const data   = JSON.parse(res.getContentText());
+
+    if (!data.ok) return { success: false, message: 'Token ไม่ถูกต้อง: ' + (data.description || '') };
+
+    if (!data.result || data.result.length === 0) {
+      return {
+        success: false,
+        message: 'ไม่พบข้อความ — กรุณาส่งข้อความหา bot ก่อน แล้วลองใหม่',
+        hint:    'เปิด Telegram ส่งข้อความอะไรก็ได้ให้ bot ของคุณก่อน',
+      };
+    }
+
+    // รวบรวม unique chat ids จาก updates
+    const chats = [];
+    const seen  = new Set();
+    data.result.forEach(u => {
+      const chat = u.message?.chat || u.channel_post?.chat;
+      if (chat && !seen.has(String(chat.id))) {
+        seen.add(String(chat.id));
+        chats.push({
+          id:       String(chat.id),
+          type:     chat.type || 'private',
+          name:     chat.first_name
+                      ? (chat.first_name + ' ' + (chat.last_name || '')).trim()
+                      : (chat.title || chat.username || ''),
+          username: chat.username || '',
+        });
+      }
+    });
+
+    return { success: true, chats };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
 }
 
 // ─────────────────────────────────────────

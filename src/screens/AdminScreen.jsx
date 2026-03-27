@@ -395,6 +395,8 @@ export default function AdminScreen() {
   const [tgForm, setTgForm]           = useState({ botToken: '', chatId: '' });
   const [tgSaving, setTgSaving]       = useState(false);
   const [tgTesting, setTgTesting]     = useState(false);
+  const [tgFinding, setTgFinding]     = useState(false);
+  const [tgChats, setTgChats]         = useState([]);
   const [memberFilter, setMemberFilter] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [resultSearch, setResultSearch] = useState('');
@@ -484,6 +486,25 @@ export default function AdminScreen() {
       Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ!', timer: 1500, showConfirmButton: false });
     } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
     } finally { setTgSaving(false); }
+  }
+
+  async function findTelegramChats() {
+    setTgFinding(true);
+    setTgChats([]);
+    try {
+      const data = await apiGet('getTelegramUpdates', { userId: profile.userId });
+      if (!data.success) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'ไม่พบข้อความ',
+          html: `${data.message || ''}<br><br><b>วิธีแก้:</b><br>1. เปิด Telegram<br>2. ค้นหา bot ของคุณ<br>3. ส่งข้อความอะไรก็ได้<br>4. กลับมากด "หา Chat ID" ใหม่`,
+        });
+        return;
+      }
+      setTgChats(data.chats || []);
+    } catch (e) {
+      Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    } finally { setTgFinding(false); }
   }
 
   async function testTelegram() {
@@ -803,15 +824,56 @@ export default function AdminScreen() {
                   value={tgForm.botToken}
                   onChange={e => setTgForm(p => ({ ...p, botToken: e.target.value }))} />
               </label>
-              <label className="block">
-                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
-                  Chat ID <span style={{ color: '#94a3b8' }}>(ใช้ @userinfobot หรือ @RawDataBot)</span>
-                </span>
-                <input className="themed-input w-full mt-1 font-mono"
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                    Chat ID
+                  </span>
+                  <button
+                    className="btn text-xs rounded-lg px-2.5 py-1"
+                    style={{ background: '#0088cc', color: 'white', opacity: tgFinding ? .6 : 1 }}
+                    disabled={tgFinding}
+                    onClick={findTelegramChats}>
+                    {tgFinding
+                      ? <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />กำลังหา...</span>
+                      : '🔍 หา Chat ID อัตโนมัติ'}
+                  </button>
+                </div>
+                <input className="themed-input w-full font-mono"
                   placeholder="-1001234567890 หรือ 123456789"
                   value={tgForm.chatId}
                   onChange={e => setTgForm(p => ({ ...p, chatId: e.target.value }))} />
-              </label>
+
+                {/* แสดง chats ที่พบ */}
+                {tgChats.length > 0 && (
+                  <div className="mt-2 rounded-xl overflow-hidden"
+                    style={{ border: '1.5px solid #0088cc' }}>
+                    <div className="px-3 py-2 text-xs font-semibold"
+                      style={{ background: '#0088cc', color: 'white' }}>
+                      ✅ พบ {tgChats.length} chat — กดเลือกเพื่อใช้
+                    </div>
+                    {tgChats.map(c => (
+                      <button key={c.id}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:opacity-80 transition-opacity"
+                        style={{ background: 'var(--input-bg)', borderTop: '1px solid var(--input-border)' }}
+                        onClick={() => { setTgForm(p => ({ ...p, chatId: c.id })); setTgChats([]); }}>
+                        <span className="text-lg flex-shrink-0">
+                          {c.type === 'private' ? '👤' : c.type === 'group' ? '👥' : '📢'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>
+                            {c.name || 'ไม่มีชื่อ'}
+                            {c.username && <span style={{ color: 'var(--text-muted)' }}> @{c.username}</span>}
+                          </div>
+                          <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{c.type} • ID: {c.id}</div>
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                          style={{ background: '#dcfce7', color: '#15803d' }}>เลือก</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
