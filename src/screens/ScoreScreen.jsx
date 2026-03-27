@@ -269,6 +269,7 @@ export default function ScoreScreen() {
       total:       tot,
       timeUsed:    exam.timeUsed,
       detail:      exam.detail,
+      setId:       exam.setId           || '',   // บันทึก setId ถ้าสอบจากชุด
     }).catch(e => console.error('saveResult error:', e));
 
     // 2) ส่ง Flex Message ทาง LIFF

@@ -9,8 +9,10 @@ import ScoreScreen         from './screens/ScoreScreen';
 import ReviewScreen        from './screens/ReviewScreen';
 import HistoryScreen       from './screens/HistoryScreen';
 import HistoryDetailScreen from './screens/HistoryDetailScreen';
-import AdminScreen         from './screens/AdminScreen';
+import AdminScreen           from './screens/AdminScreen';
 import QuestionManagerScreen from './screens/QuestionManagerScreen';
+import ExamSetManagerScreen  from './screens/ExamSetManagerScreen';
+import ExamSetScreen         from './screens/ExamSetScreen';
 import Spinner             from './components/Spinner';
 
 function Router() {
@@ -29,6 +31,8 @@ function Router() {
     historyDetail:   <HistoryDetailScreen />,
     admin:           <AdminScreen />,
     questionManager: <QuestionManagerScreen />,
+    examSetManager:  <ExamSetManagerScreen />,
+    examSets:        <ExamSetScreen />,
   };
 
   return screenMap[screen] ?? <AuthScreen />;

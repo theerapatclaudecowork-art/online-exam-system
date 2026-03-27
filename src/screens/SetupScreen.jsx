@@ -150,9 +150,18 @@ export default function SetupScreen() {
         </div>
       </div>
 
-      <button className="btn btn-primary w-full rounded-xl py-3 sm:py-4 text-base sm:text-lg" onClick={goToSubject}>
-        ▶&nbsp; เลือกวิชาและเริ่มสอบ
-      </button>
+      {/* ปุ่มหลัก 2 แบบ */}
+      <div className="space-y-3">
+        <button className="btn w-full rounded-xl py-3 sm:py-4 text-base sm:text-lg font-bold"
+          style={{ background: 'var(--accent)', color: 'white' }}
+          onClick={() => navigate('examSets')}>
+          📦&nbsp; เลือกชุดข้อสอบ
+        </button>
+        <button className="btn btn-gray w-full rounded-xl py-2.5 sm:py-3 text-sm sm:text-base"
+          onClick={goToSubject}>
+          📚&nbsp; เลือกวิชาแยกรายวิชา
+        </button>
+      </div>
     </div>
   );
 }

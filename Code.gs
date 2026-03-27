@@ -14,6 +14,11 @@ const SHEET_QUESTIONS = 'Questions';
 // Questions → A:id | B:คำถาม | C:ก | D:ข | E:ค | F:ง | G:คำตอบ(ข้อความ) | H:คำอธิบาย | I:หมวดหมู่
 
 const SHEET_RESULTS   = 'Results';
+const SHEET_EXAMSETS  = 'ExamSets';
+// ExamSets → A:setId | B:setName | C:description | D:subjects(JSON)
+//            E:status(active/draft/inactive) | F:visibility(public/private)
+//            G:allowedUsers(csv userId) | H:maxAttempts(0=∞) | I:timerMin | J:passThreshold
+//            K:setOrder | L:createdAt | M:createdBy
 // Results → A:วันที่เวลา | B:lineUserId | C:ชื่อ | D:email | E:วิชา
 //           F:คะแนน | G:รวม | H:เปอร์เซ็นต์ | I:ผ่าน | J:เวลา(วิ) | K:examId | L:details(JSON)
 
@@ -84,6 +89,16 @@ function route(action, params, body) {
       case 'addQuestion':      return json(addQuestion(body));
       case 'updateQuestion':   return json(updateQuestion(body));
       case 'deleteQuestion':      return json(deleteQuestion(body));
+      // ── ExamSets ──────────────────────────────────────────
+      case 'getExamSets':          return json(getExamSets(params.userId));
+      case 'getAdminExamSets':     return json(getAdminExamSets(params.userId));
+      case 'getExamSetQuestions':  return json(getExamSetQuestions(params.setId, params.userId));
+      case 'createExamSet':        return json(createExamSet(body));
+      case 'updateExamSet':        return json(updateExamSet(body));
+      case 'deleteExamSet':        return json(deleteExamSet(body));
+      case 'assignExamSet':        return json(assignExamSet(body));
+      case 'getExamSetDetail':     return json(getExamSetDetail(params.callerUserId, params.setId));
+      // ─────────────────────────────────────────────────────
       case 'getLineProfile':         return json(getLineProfile(params.userId, params.callerUserId));
       case 'syncAllLineProfiles':    return json(syncAllLineProfiles(params.userId));
       case 'getMembersWithProfiles': return json(getMembersWithProfiles(params.userId));
@@ -238,7 +253,7 @@ function _getQuestionsRaw(lesson) {
 //  5. บันทึกผลสอบ (พร้อม examId + detail ทุกข้อ)
 // ─────────────────────────────────────────
 function saveResult(data) {
-  const { userId, displayName, email, lesson, score, total, timeUsed, detail } = data || {};
+  const { userId, displayName, email, lesson, score, total, timeUsed, detail, setId } = data || {};
 
   // ── Validate required fields ──
   if (!userId)  return { success: false, message: 'ไม่พบ userId' };
@@ -255,7 +270,7 @@ function saveResult(data) {
     sheet = SpreadsheetApp.openById(SPREADSHEET_ID).insertSheet(SHEET_RESULTS);
     sheet.appendRow([
       'วันที่เวลา','lineUserId','ชื่อ','email','วิชา',
-      'คะแนน','รวม','เปอร์เซ็นต์','ผ่าน','เวลา(วิ)','examId','details',
+      'คะแนน','รวม','เปอร์เซ็นต์','ผ่าน','เวลา(วิ)','examId','details','setId',
     ]);
     const hdr = sheet.getRange(1, 1, 1, 12);
     hdr.setFontWeight('bold');
@@ -282,7 +297,7 @@ function saveResult(data) {
     String(displayName || '').substring(0, 100),
     String(email       || '').substring(0, 200),
     String(lesson).trim().substring(0, 100),
-    sc, tot, pct + '%', pass, timeUsedNum, examId, detailStr,
+    sc, tot, pct + '%', pass, timeUsedNum, examId, detailStr, String(setId || ''),
   ]);
 
   return { success: true, examId };
@@ -853,6 +868,305 @@ function _clearQuestionCache(subject) {
     cache.removeAll(keys);
   } catch (_) {}
 }
+
+// ═══════════════════════════════════════════════════════════
+//  ExamSets — ชุดข้อสอบ
+// ═══════════════════════════════════════════════════════════
+
+function _getExamSetsSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(SHEET_EXAMSETS);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_EXAMSETS);
+    sheet.getRange(1, 1, 1, 13).setValues([[
+      'setId','setName','description','subjects','status',
+      'visibility','allowedUsers','maxAttempts','timerMin',
+      'passThreshold','setOrder','createdAt','createdBy'
+    ]]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function _parseExamSetRow(r, index) {
+  let subjects = [];
+  try { subjects = JSON.parse(String(r[3] || '[]')); } catch(_) {}
+  const totalQ = subjects.reduce((s, sub) => s + Number(sub.numQ || 0), 0);
+  return {
+    setId:         String(r[0] || ''),
+    setName:       String(r[1] || ''),
+    description:   String(r[2] || ''),
+    subjects,
+    totalQ,
+    subjectCount:  subjects.length,
+    status:        String(r[4] || 'draft').toLowerCase(),
+    visibility:    String(r[5] || 'public').toLowerCase(),
+    allowedUsers:  String(r[6] || '').split(',').map(s=>s.trim()).filter(Boolean),
+    maxAttempts:   Number(r[7] || 0),
+    timerMin:      Number(r[8] || 0),
+    passThreshold: Number(r[9] || 60),
+    setOrder:      Number(r[10] || 99),
+    createdAt:     formatDate(r[11]),
+    createdBy:     String(r[12] || ''),
+    rowIndex:      index + 2,
+  };
+}
+
+// ── ดึงชุดข้อสอบที่ user มีสิทธิ์ ──────────────────────────
+function getExamSets(userId) {
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues().slice(1);
+  const sets  = rows
+    .map((r, i) => _parseExamSetRow(r, i))
+    .filter(s => s.status === 'active' && s.setId)
+    .filter(s => {
+      if (s.visibility === 'public' || !s.visibility) return true;
+      return s.allowedUsers.includes(String(userId || ''));
+    })
+    .sort((a, b) => a.setOrder - b.setOrder);
+  return { success: true, sets };
+}
+
+// ── ดึงทุกชุด (admin) ───────────────────────────────────────
+function getAdminExamSets(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet  = _getExamSetsSheet();
+  const rows   = sheet.getDataRange().getValues().slice(1);
+  const rSheet = getSheet(SHEET_RESULTS);
+  const rRows  = rSheet ? rSheet.getDataRange().getValues().slice(1) : [];
+
+  const sets = rows
+    .filter(r => r[0])
+    .map((r, i) => {
+      const s = _parseExamSetRow(r, i);
+      // count attempts
+      const attempts = rRows.filter(rr => String(rr[12]||'') === s.setId);
+      s.attemptCount = attempts.length;
+      s.passCount    = attempts.filter(rr => String(rr[8]) === 'ผ่าน').length;
+      s.passRate     = s.attemptCount > 0 ? Math.round((s.passCount / s.attemptCount) * 100) : 0;
+      return s;
+    })
+    .sort((a, b) => a.setOrder - b.setOrder);
+
+  return { success: true, sets };
+}
+
+// ── รายละเอียดชุด 1 ชุด (admin) ────────────────────────────
+function getExamSetDetail(callerUserId, setId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues().slice(1);
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== String(setId).trim()) continue;
+    const s = _parseExamSetRow(rows[i], i);
+
+    // ดึง users ที่มีสิทธิ์ (private)
+    if (s.visibility === 'private' && s.allowedUsers.length) {
+      const uSheet = getSheet(SHEET_USERS);
+      if (uSheet) {
+        const uRows = uSheet.getDataRange().getValues().slice(1);
+        s.assignedMembers = uRows
+          .filter(u => s.allowedUsers.includes(String(u[0]).trim()))
+          .map(u => ({
+            lineUserId:  String(u[0]),
+            fullName:    String(u[3] || u[1] || ''),
+            displayName: String(u[1] || ''),
+            pictureUrl:  String(u[7] || ''),
+            status:      String(u[2] || ''),
+          }));
+      }
+    }
+
+    // ผลสอบในชุดนี้ (รวม column M = setId)
+    const rSheet = getSheet(SHEET_RESULTS);
+    if (rSheet) {
+      const rRows = rSheet.getDataRange().getValues().slice(1);
+      const attempts = rRows.filter(r => String(r[12]||'') === setId);
+      s.attemptCount = attempts.length;
+      s.passCount    = attempts.filter(r => String(r[8]) === 'ผ่าน').length;
+      s.passRate     = s.attemptCount > 0 ? Math.round((s.passCount / s.attemptCount) * 100) : 0;
+      s.recentAttempts = attempts.reverse().slice(0, 10).map(r => ({
+        date:  formatDate(r[0]),
+        name:  String(r[2] || ''),
+        pct:   String(r[7] || '0%'),
+        pass:  String(r[8] || ''),
+        examId: String(r[10] || ''),
+      }));
+    }
+
+    return { success: true, set: s };
+  }
+  return { success: false, message: 'ไม่พบชุดข้อสอบ' };
+}
+
+// ── ดึงข้อสอบรวมจากทุกวิชาในชุด ────────────────────────────
+function getExamSetQuestions(setId, userId) {
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues().slice(1);
+  let targetSet = null;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(setId).trim()) {
+      targetSet = _parseExamSetRow(rows[i], i);
+      break;
+    }
+  }
+  if (!targetSet) return { success: false, message: 'ไม่พบชุดข้อสอบ' };
+  if (targetSet.status !== 'active') return { success: false, message: 'ชุดข้อสอบนี้ยังไม่เปิดใช้งาน' };
+
+  // ตรวจสิทธิ์ user
+  if (targetSet.visibility === 'private' && !targetSet.allowedUsers.includes(String(userId || ''))) {
+    return { success: false, message: 'คุณไม่มีสิทธิ์เข้าถึงชุดข้อสอบนี้' };
+  }
+
+  const qSheet = getSheet(SHEET_QUESTIONS);
+  if (!qSheet) return { success: false, message: 'ไม่พบ Sheet Questions' };
+  const qRows = qSheet.getDataRange().getValues().slice(1);
+
+  // รวมข้อสอบจากทุกวิชา
+  const combined = [];
+  targetSet.subjects.forEach(sub => {
+    const pool = qRows.filter(r => String(r[8]||'').trim() === sub.name && r[1]);
+    const numQ = Number(sub.numQ || 0);
+    // สุ่ม numQ จาก pool
+    const shuffled = pool.sort(() => Math.random() - 0.5);
+    const selected = numQ > 0 ? shuffled.slice(0, numQ) : shuffled;
+    selected.forEach(r => {
+      const options = [r[2],r[3],r[4],r[5]]
+        .map(x => String(x||'').trim()).filter(x => x);
+      combined.push({
+        id:          String(r[0] || ''),
+        question:    String(r[1]),
+        options,
+        answer:      String(r[6]||'').trim(),
+        explanation: String(r[7]||'ไม่มีคำอธิบาย'),
+        imageUrl:    String(r[9]||'').trim(),
+        subject:     sub.name,
+      });
+    });
+  });
+
+  return {
+    success:  true,
+    questions: combined,
+    setName:  targetSet.setName,
+    timerMin: targetSet.timerMin,
+    passThreshold: targetSet.passThreshold,
+  };
+}
+
+// ── สร้างชุดข้อสอบใหม่ ─────────────────────────────────────
+function createExamSet(body) {
+  const { callerUserId, setName, description, subjects, status, visibility,
+          allowedUsers, maxAttempts, timerMin, passThreshold, setOrder } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!setName) return { success: false, message: 'กรุณาระบุชื่อชุดข้อสอบ' };
+
+  const sheet  = _getExamSetsSheet();
+  const setId  = 'SET' + Date.now();
+  const subsJson = JSON.stringify(subjects || []);
+  const allowedCsv = Array.isArray(allowedUsers) ? allowedUsers.join(',') : (allowedUsers || '');
+
+  sheet.appendRow([
+    setId,
+    String(setName).trim(),
+    String(description || ''),
+    subsJson,
+    String(status || 'draft'),
+    String(visibility || 'public'),
+    allowedCsv,
+    Number(maxAttempts || 0),
+    Number(timerMin || 0),
+    Number(passThreshold || 60),
+    Number(setOrder || 99),
+    new Date(),
+    String(callerUserId),
+  ]);
+
+  invalidateCache('examsets_all');
+  return { success: true, setId };
+}
+
+// ── แก้ไขชุดข้อสอบ ─────────────────────────────────────────
+function updateExamSet(body) {
+  const { callerUserId, setId, setName, description, subjects, status, visibility,
+          allowedUsers, maxAttempts, timerMin, passThreshold, setOrder } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!setId) return { success: false, message: 'ไม่พบ setId' };
+
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== String(setId).trim()) continue;
+    const row = i + 1;
+    const allowedCsv = Array.isArray(allowedUsers) ? allowedUsers.join(',') : (allowedUsers || '');
+    sheet.getRange(row, 2, 1, 12).setValues([[
+      String(setName || rows[i][1]),
+      String(description !== undefined ? description : rows[i][2]),
+      JSON.stringify(subjects !== undefined ? subjects : JSON.parse(String(rows[i][3] || '[]'))),
+      String(status !== undefined ? status : rows[i][4]),
+      String(visibility !== undefined ? visibility : rows[i][5]),
+      allowedUsers !== undefined ? allowedCsv : String(rows[i][6] || ''),
+      Number(maxAttempts !== undefined ? maxAttempts : rows[i][7] || 0),
+      Number(timerMin !== undefined ? timerMin : rows[i][8] || 0),
+      Number(passThreshold !== undefined ? passThreshold : rows[i][9] || 60),
+      Number(setOrder !== undefined ? setOrder : rows[i][10] || 99),
+      rows[i][11],          // createdAt ไม่เปลี่ยน
+      rows[i][12],          // createdBy ไม่เปลี่ยน
+    ]]);
+    invalidateCache('examsets_all');
+    return { success: true };
+  }
+  return { success: false, message: 'ไม่พบชุดข้อสอบ' };
+}
+
+// ── ลบชุดข้อสอบ ────────────────────────────────────────────
+function deleteExamSet(body) {
+  const { callerUserId, setId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!setId) return { success: false, message: 'ไม่พบ setId' };
+
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== String(setId).trim()) continue;
+    sheet.deleteRow(i + 1);
+    invalidateCache('examsets_all');
+    return { success: true };
+  }
+  return { success: false, message: 'ไม่พบชุดข้อสอบ' };
+}
+
+// ── จัดการ user ที่มีสิทธิ์ (private sets) ──────────────────
+function assignExamSet(body) {
+  const { callerUserId, setId, action, targetUserId } = body || {};
+  // action: 'add' | 'remove' | 'setAll' (replace entire list)
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!setId) return { success: false, message: 'ไม่พบ setId' };
+
+  const sheet = _getExamSetsSheet();
+  const rows  = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== String(setId).trim()) continue;
+    const current = String(rows[i][6] || '').split(',').map(s=>s.trim()).filter(Boolean);
+    let updated = [...current];
+
+    if (action === 'add' && targetUserId) {
+      if (!updated.includes(targetUserId)) updated.push(targetUserId);
+    } else if (action === 'remove' && targetUserId) {
+      updated = updated.filter(u => u !== targetUserId);
+    } else if (action === 'setAll' && Array.isArray(body.userIds)) {
+      updated = body.userIds.map(u => String(u).trim()).filter(Boolean);
+    }
+
+    sheet.getRange(i + 1, 7).setValue(updated.join(','));
+    invalidateCache('examsets_all');
+    return { success: true, allowedUsers: updated };
+  }
+  return { success: false, message: 'ไม่พบชุดข้อสอบ' };
+}
+
+// ── บันทึกผลสอบ: เพิ่ม setId ใน column M ────────────────────
+// (จัดการโดย saveResult ปกติ แต่รับ setId เพิ่มเติม)
 
 // ─────────────────────────────────────────
 //  LINE API — ดึงโปรไฟล์จาก LINE

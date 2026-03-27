@@ -33,6 +33,8 @@ export function AppProvider({ children }) {
   // ── Exam State ──
   const [exam, setExam] = useState({
     lesson: '',
+    setId:  '',    // ถ้าสอบจากชุดข้อสอบ จะมี setId
+    passThreshold: 60,
     allQ: [],
     questions: [],
     answers: [],

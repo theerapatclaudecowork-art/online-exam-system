@@ -513,7 +513,10 @@ export default function AdminScreen() {
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Admin Panel</p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end flex-shrink-0">
-            <button className="btn btn-primary text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('questionManager')}>📚 จัดการข้อสอบ</button>
+            <button className="btn text-xs rounded-lg px-3 py-1.5"
+              style={{ background: '#f59e0b', color: 'white' }}
+              onClick={() => navigate('examSetManager')}>📦 ชุดข้อสอบ</button>
+            <button className="btn btn-primary text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('questionManager')}>📚 ข้อสอบ</button>
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
           </div>
         </div>
