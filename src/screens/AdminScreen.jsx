@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
 import { apiGet, apiPost } from '../utils/api';
 import Spinner from '../components/Spinner';
+import StatsCharts from '../components/charts/StatsCharts';
 
 const STATUS_LABEL = {
   active:   { label: 'ใช้งาน',    bg: '#dcfce7', color: '#15803d' },
@@ -534,46 +535,7 @@ export default function AdminScreen() {
 
       {/* ── Stats Tab ─────────────────────────────── */}
       {tab === 'stats' && (
-        <div className="animate-fade">
-          {!stats ? <Spinner label="กำลังโหลดสถิติ..." /> : (
-            <>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {[
-                  { val: stats.totalMembers,     label: 'สมาชิกทั้งหมด',   color: 'var(--accent)' },
-                  { val: stats.activeMembers,    label: 'ใช้งานได้',         color: '#16a34a' },
-                  { val: stats.pendingMembers,   label: 'รออนุมัติ',         color: '#d97706' },
-                  { val: stats.totalQuestions,   label: 'ข้อสอบทั้งหมด',   color: '#6366f1' },
-                  { val: stats.totalExams,       label: 'ครั้งสอบรวม',       color: '#3b82f6' },
-                  { val: stats.avgPassRate + '%', label: 'อัตราผ่านเฉลี่ย', color: '#ec4899' },
-                ].map(s => (
-                  <div key={s.label} className="stat-box">
-                    <div className="text-xl sm:text-2xl font-black" style={{ color: s.color }}>{s.val}</div>
-                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              {stats.subjectStats?.length > 0 && (
-                <div className="quiz-card no-hover rounded-2xl p-4 mb-4">
-                  <h3 className="font-bold mb-3" style={{ color: 'var(--text)' }}>📈 สถิติตามวิชา</h3>
-                  <div className="space-y-2">
-                    {stats.subjectStats.map(s => (
-                      <div key={s.name}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{s.name}</span>
-                          <span style={{ color: 'var(--text-muted)' }}>{s.count} ครั้ง • ผ่าน {s.passRate}%</span>
-                        </div>
-                        <div style={{ background: 'var(--progress-trk)', borderRadius: 999, height: 6, overflow: 'hidden' }}>
-                          <div style={{ width: `${s.passRate}%`, height: '100%', background: s.passRate >= 60 ? '#22c55e' : '#ef4444', borderRadius: 999 }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <button className="btn btn-gray w-full rounded-xl py-2.5 text-sm" onClick={loadStats}>🔄 รีเฟรช</button>
-            </>
-          )}
-        </div>
+        <StatsCharts stats={stats} loading={!stats && loading} onRefresh={loadStats} />
       )}
 
       {/* ── Members Tab ───────────────────────────── */}

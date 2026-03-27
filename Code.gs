@@ -469,44 +469,140 @@ function isAdmin(userId) {
 
 function getAdminStats(callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
-  const users = getSheet(SHEET_USERS);
+  const users     = getSheet(SHEET_USERS);
   const questions = getSheet(SHEET_QUESTIONS);
-  const results = getSheet(SHEET_RESULTS);
+  const results   = getSheet(SHEET_RESULTS);
 
-  const userRows = users ? users.getDataRange().getValues().slice(1) : [];
-  const totalMembers = userRows.length;
-  const activeMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'active').length;
+  // ── Users ──────────────────────────────────────────
+  const userRows      = users ? users.getDataRange().getValues().slice(1) : [];
+  const totalMembers  = userRows.length;
+  const activeMembers  = userRows.filter(r => String(r[2]).toLowerCase() === 'active').length;
   const pendingMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'pending').length;
-  const inactiveMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'inactive').length;
+  const inactiveMembers= userRows.filter(r => String(r[2]).toLowerCase() === 'inactive').length;
 
+  // ── Questions ──────────────────────────────────────
   const qRows = questions ? questions.getDataRange().getValues().slice(1).filter(r => r[1]) : [];
   const totalQuestions = qRows.length;
-  const subjects = {};
+  const qBySubject = {};
   qRows.forEach(r => {
     const s = String(r[8] || '').trim();
-    if (s) subjects[s] = (subjects[s] || 0) + 1;
+    if (s) qBySubject[s] = (qBySubject[s] || 0) + 1;
   });
+  const questionsBySubject = Object.entries(qBySubject)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
 
-  const rRows = results ? results.getDataRange().getValues().slice(1) : [];
+  // ── Results ────────────────────────────────────────
+  const rRows      = results ? results.getDataRange().getValues().slice(1) : [];
   const totalExams = rRows.length;
-  const passCount = rRows.filter(r => String(r[8]) === 'ผ่าน').length;
-  const avgPassRate = totalExams > 0 ? Math.round((passCount / totalExams) * 100) : 0;
+  const passTotal  = rRows.filter(r => String(r[8]) === 'ผ่าน').length;
+  const failTotal  = totalExams - passTotal;
+  const avgPassRate = totalExams > 0 ? Math.round((passTotal / totalExams) * 100) : 0;
 
-  // subject stats
+  // ── Subject Stats (enhanced) ───────────────────────
   const subjectMap = {};
   rRows.forEach(r => {
-    const s = String(r[4] || '').trim();
+    const s    = String(r[4] || '').trim();
+    const pct  = Number(String(r[7] || '0').replace('%', '')) || 0;
+    const time = Number(r[9] || 0);
     if (!s) return;
-    if (!subjectMap[s]) subjectMap[s] = { count: 0, pass: 0 };
+    if (!subjectMap[s]) subjectMap[s] = { count: 0, pass: 0, scoreSum: 0, timeSum: 0 };
     subjectMap[s].count++;
     if (String(r[8]) === 'ผ่าน') subjectMap[s].pass++;
+    subjectMap[s].scoreSum += pct;
+    subjectMap[s].timeSum  += time;
   });
   const subjectStats = Object.entries(subjectMap)
-    .map(([name, v]) => ({ name, count: v.count, passRate: Math.round((v.pass / v.count) * 100) }))
+    .map(([name, v]) => ({
+      name,
+      count:    v.count,
+      passCount: v.pass,
+      failCount: v.count - v.pass,
+      passRate:  Math.round((v.pass / v.count) * 100),
+      avgScore:  Math.round(v.scoreSum / v.count),
+      avgTimeSec: Math.round(v.timeSum / v.count),
+    }))
     .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+
+  // ── Score Distribution (histogram 10 buckets) ─────
+  const buckets = new Array(10).fill(0);
+  rRows.forEach(r => {
+    const pct = Number(String(r[7] || '0').replace('%', '')) || 0;
+    const idx = Math.min(9, Math.floor(pct / 10));
+    buckets[idx]++;
+  });
+  const scoreDistribution = buckets.map((count, i) => ({
+    label:  i === 9 ? '90-100' : (i * 10) + '-' + (i * 10 + 9),
+    count,
+    pass: i >= 6,    // 60%+ ถือว่าผ่าน
+  }));
+
+  // ── Daily Trend (14 วันล่าสุด) ──────────────────────
+  const today    = new Date();
+  const dayMap   = {};
+  const mbrMap   = {};
+  for (let d = 13; d >= 0; d--) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() - d);
+    const key = (dt.getDate()) + '/' + (dt.getMonth() + 1);
+    dayMap[key] = { date: key, examCount: 0, passCount: 0 };
+    mbrMap[key] = { date: key, newMembers: 0 };
+  }
+  rRows.forEach(r => {
+    const dt = new Date(r[0]);
+    if (isNaN(dt)) return;
+    const diffDays = Math.floor((today - dt) / 86400000);
+    if (diffDays > 13) return;
+    const key = dt.getDate() + '/' + (dt.getMonth() + 1);
+    if (dayMap[key]) {
+      dayMap[key].examCount++;
+      if (String(r[8]) === 'ผ่าน') dayMap[key].passCount++;
+    }
+  });
+  userRows.forEach(r => {
+    const dt = new Date(r[8]);
+    if (isNaN(dt)) return;
+    const diffDays = Math.floor((today - dt) / 86400000);
+    if (diffDays > 13) return;
+    const key = dt.getDate() + '/' + (dt.getMonth() + 1);
+    if (mbrMap[key]) mbrMap[key].newMembers++;
+  });
+  const dailyTrend  = Object.values(dayMap);
+  const memberTrend = Object.values(mbrMap);
+
+  // ── Top Scorers ────────────────────────────────────
+  const scorerMap = {};
+  rRows.forEach(r => {
+    const uid  = String(r[1] || '').trim();
+    const name = String(r[2] || uid).trim();
+    const pct  = Number(String(r[7] || '0').replace('%', '')) || 0;
+    if (!uid) return;
+    if (!scorerMap[uid]) scorerMap[uid] = { name, scoreSum: 0, count: 0, passCount: 0 };
+    scorerMap[uid].scoreSum += pct;
+    scorerMap[uid].count++;
+    if (String(r[8]) === 'ผ่าน') scorerMap[uid].passCount++;
+  });
+  const topScorers = Object.values(scorerMap)
+    .map(v => ({ name: v.name, avgScore: Math.round(v.scoreSum / v.count), examCount: v.count, passCount: v.passCount }))
+    .filter(v => v.examCount >= 1)
+    .sort((a, b) => b.avgScore - a.avgScore)
     .slice(0, 10);
 
-  return { success: true, totalMembers, activeMembers, pendingMembers, inactiveMembers, totalQuestions, totalExams, avgPassRate, subjectStats };
+  return {
+    success: true,
+    // KPI
+    totalMembers, activeMembers, pendingMembers, inactiveMembers,
+    totalQuestions, totalExams, avgPassRate,
+    passFail: { pass: passTotal, fail: failTotal },
+    // Charts
+    subjectStats,
+    questionsBySubject,
+    scoreDistribution,
+    dailyTrend,
+    memberTrend,
+    topScorers,
+  };
 }
 
 function getMembers(callerUserId) {
