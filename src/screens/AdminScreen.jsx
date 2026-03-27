@@ -390,6 +390,11 @@ export default function AdminScreen() {
   const [resultPage, setResultPage]   = useState(0);
   const [loading, setLoading]         = useState(false);
   const [syncing, setSyncing]         = useState(false);
+  // Telegram config
+  const [tgConfig, setTgConfig]       = useState(null);
+  const [tgForm, setTgForm]           = useState({ botToken: '', chatId: '' });
+  const [tgSaving, setTgSaving]       = useState(false);
+  const [tgTesting, setTgTesting]     = useState(false);
   const [memberFilter, setMemberFilter] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [resultSearch, setResultSearch] = useState('');
@@ -397,7 +402,7 @@ export default function AdminScreen() {
   const [lastSyncTime, setLastSyncTime]   = useState('');
   const [selectedMember, setSelectedMember] = useState(null);
 
-  useEffect(() => { loadStats(); loadMembers(); loadTriggerStatus(); }, []);
+  useEffect(() => { loadStats(); loadMembers(); loadTriggerStatus(); loadTgConfig(); }, []);
 
   async function loadStats() {
     try {
@@ -461,6 +466,39 @@ export default function AdminScreen() {
     } finally { setSyncing(false); }
   }
 
+  async function loadTgConfig() {
+    try {
+      const data = await apiGet('getTelegramConfig', { userId: profile.userId });
+      if (data.success) setTgConfig(data);
+    } catch (_) {}
+  }
+
+  async function saveTgConfig() {
+    if (!tgForm.botToken && !tgForm.chatId) return;
+    setTgSaving(true);
+    try {
+      const data = await apiPost({ action: 'setTelegramConfig', callerUserId: profile.userId, ...tgForm });
+      if (!data.success) throw new Error(data.message);
+      setTgForm({ botToken: '', chatId: '' });
+      await loadTgConfig();
+      Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ!', timer: 1500, showConfirmButton: false });
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    } finally { setTgSaving(false); }
+  }
+
+  async function testTelegram() {
+    setTgTesting(true);
+    try {
+      const data = await apiGet('testTelegramNotify', { userId: profile.userId });
+      if (data.success) {
+        Swal.fire({ icon: 'success', title: '✅ ส่งสำเร็จ!', text: data.message, timer: 2500, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'ส่งไม่สำเร็จ', text: data.message });
+      }
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    } finally { setTgTesting(false); }
+  }
+
   // เมื่อแก้ไขข้อมูลจาก Modal → อัปเดต local state
   function handleMemberUpdated(updated) {
     setMembers(prev => prev.map(m => m.lineUserId === updated.lineUserId ? { ...m, ...updated } : m));
@@ -473,9 +511,10 @@ export default function AdminScreen() {
   }
 
   const TABS = [
-    { key: 'stats',   label: '📊 สถิติ' },
-    { key: 'members', label: '👥 สมาชิก' },
-    { key: 'results', label: '📋 ผลสอบ' },
+    { key: 'stats',    label: '📊 สถิติ' },
+    { key: 'members',  label: '👥 สมาชิก' },
+    { key: 'results',  label: '📋 ผลสอบ' },
+    { key: 'settings', label: '⚙️ ตั้งค่า' },
   ];
 
   // filter + search
@@ -712,6 +751,130 @@ export default function AdminScreen() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── Settings Tab ──────────────────────────────────── */}
+      {tab === 'settings' && (
+        <div className="animate-fade space-y-4">
+
+          {/* ── Telegram Section ─────────────── */}
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">✈️</span>
+              <div>
+                <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>Telegram Notification</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>แจ้งเตือน Admin เมื่อมีสมาชิกใหม่ / เปลี่ยนสถานะ</div>
+              </div>
+              {tgConfig && (
+                <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-semibold"
+                  style={tgConfig.configured
+                    ? { background: '#dcfce7', color: '#15803d' }
+                    : { background: '#fee2e2', color: '#b91c1c' }}>
+                  {tgConfig.configured ? '✅ เชื่อมต่อแล้ว' : '⚠️ ยังไม่ได้ตั้งค่า'}
+                </span>
+              )}
+            </div>
+
+            {/* สถานะปัจจุบัน */}
+            {tgConfig?.configured && (
+              <div className="rounded-xl p-3 mb-4 space-y-1.5"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="flex justify-between text-xs">
+                  <span style={{ color: 'var(--text-muted)' }}>Bot Token</span>
+                  <span className="font-mono" style={{ color: 'var(--text)' }}>{tgConfig.maskedToken}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span style={{ color: 'var(--text-muted)' }}>Chat ID</span>
+                  <span className="font-mono" style={{ color: 'var(--text)' }}>{tgConfig.chatId}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Form ตั้งค่า */}
+            <div className="space-y-3 mb-4">
+              <label className="block">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                  Bot Token <span style={{ color: '#94a3b8' }}>(จาก @BotFather)</span>
+                </span>
+                <input className="themed-input w-full mt-1 font-mono text-xs"
+                  type="password"
+                  placeholder={tgConfig?.hasToken ? '••••••• (ใส่ใหม่เพื่อเปลี่ยน)' : '1234567890:ABCDEF...'}
+                  value={tgForm.botToken}
+                  onChange={e => setTgForm(p => ({ ...p, botToken: e.target.value }))} />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                  Chat ID <span style={{ color: '#94a3b8' }}>(ใช้ @userinfobot หรือ @RawDataBot)</span>
+                </span>
+                <input className="themed-input w-full mt-1 font-mono"
+                  placeholder="-1001234567890 หรือ 123456789"
+                  value={tgForm.chatId}
+                  onChange={e => setTgForm(p => ({ ...p, chatId: e.target.value }))} />
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <button className="btn flex-1 rounded-xl py-2.5 text-sm"
+                style={{ background: 'var(--accent)', color: 'white', opacity: tgSaving ? .6 : 1 }}
+                disabled={tgSaving || (!tgForm.botToken && !tgForm.chatId)}
+                onClick={saveTgConfig}>
+                {tgSaving ? '⏳ บันทึก...' : '💾 บันทึก'}
+              </button>
+              {tgConfig?.configured && (
+                <button className="btn rounded-xl py-2.5 px-4 text-sm"
+                  style={{ background: '#0088cc', color: 'white', opacity: tgTesting ? .6 : 1 }}
+                  disabled={tgTesting}
+                  onClick={testTelegram}>
+                  {tgTesting ? '⏳...' : '🧪 ทดสอบ'}
+                </button>
+              )}
+              {tgConfig?.configured && (
+                <button className="btn btn-gray rounded-xl py-2.5 px-3 text-sm"
+                  onClick={async () => {
+                    const r = await Swal.fire({ title: 'ลบการตั้งค่า Telegram?', icon: 'warning', showCancelButton: true, confirmButtonText: 'ลบ', confirmButtonColor: '#ef4444' });
+                    if (!r.isConfirmed) return;
+                    await apiPost({ action: 'setTelegramConfig', callerUserId: profile.userId, botToken: '', chatId: '' });
+                    await loadTgConfig();
+                  }}>🗑</button>
+              )}
+            </div>
+
+            {/* คำแนะนำ */}
+            <div className="mt-4 rounded-xl p-3 text-xs space-y-1"
+              style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', border: '1px solid var(--input-border)' }}>
+              <div className="font-semibold mb-2" style={{ color: 'var(--text)' }}>📖 วิธีตั้งค่า Telegram Bot</div>
+              <div>1. เปิด Telegram → ค้นหา <b>@BotFather</b></div>
+              <div>2. พิมพ์ <code style={{ background: 'var(--card)', padding: '1px 4px', borderRadius: 4 }}>/newbot</code> → ตั้งชื่อ → คัดลอก <b>Token</b></div>
+              <div>3. ส่งข้อความให้ bot ก่อนอย่างน้อย 1 ครั้ง</div>
+              <div>4. ค้นหา <b>@userinfobot</b> → พิมพ์อะไรก็ได้ → ดู <b>Id</b> = Chat ID</div>
+              <div>5. ถ้าต้องการแจ้ง Group: เพิ่ม bot เข้า group → Chat ID จะขึ้นต้นด้วย <code style={{ background: 'var(--card)', padding: '1px 4px', borderRadius: 4 }}>-100</code></div>
+            </div>
+          </div>
+
+          {/* ── เหตุการณ์ที่แจ้ง ─────────────── */}
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📣 เหตุการณ์ที่แจ้งเตือน</div>
+            <div className="space-y-2">
+              {[
+                { icon: '🆕', label: 'สมาชิกใหม่สมัคร',          detail: 'ส่งทันที พร้อมชื่อ, อีเมล, เบอร์' },
+                { icon: '✅', label: 'Admin อนุมัติสมาชิก',       detail: 'เมื่อเปลี่ยนสถานะเป็น "ใช้งาน"' },
+                { icon: '🚫', label: 'Admin ระงับสมาชิก',          detail: 'เมื่อเปลี่ยนสถานะเป็น "ระงับ"' },
+              ].map(({ icon, label, detail }) => (
+                <div key={label} className="flex items-center gap-3 py-2 px-3 rounded-xl"
+                  style={{ background: 'var(--input-bg)' }}>
+                  <span className="text-xl flex-shrink-0">{icon}</span>
+                  <div>
+                    <div className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{label}</div>
+                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{detail}</div>
+                  </div>
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: '#dcfce7', color: '#15803d' }}>เปิดอยู่</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       )}
     </div>

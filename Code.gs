@@ -102,7 +102,11 @@ function route(action, params, body) {
       case 'getLineProfile':         return json(getLineProfile(params.userId, params.callerUserId));
       case 'syncAllLineProfiles':    return json(syncAllLineProfiles(params.userId));
       case 'getMembersWithProfiles': return json(getMembersWithProfiles(params.userId));
-      case 'getTriggerStatus':       return json(getTriggerStatus(params.userId));
+      case 'getTriggerStatus':         return json(getTriggerStatus(params.userId));
+      // ── Telegram ──────────────────────────────────────────
+      case 'getTelegramConfig':      return json(getTelegramConfig(params.userId));
+      case 'setTelegramConfig':      return json(setTelegramConfig(body));
+      case 'testTelegramNotify':     return json(testTelegramNotify(params.userId));
       default:                    return json({ success: false, message: 'Unknown action: ' + action });
     }
   } catch (err) {
@@ -189,6 +193,25 @@ function registerUser(data) {
     String(pictureUrl || '').substring(0, 500),
     new Date(),
   ]);
+
+  invalidateCache('users_rows');
+
+  // แจ้ง Admin ทาง Telegram
+  try {
+    const now      = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const icon     = status === 'active' ? '✅' : '⏳';
+    const statusTh = status === 'active' ? 'อนุมัติอัตโนมัติแล้ว' : 'รออนุมัติจาก Admin';
+    const msg =
+      `🆕 <b>สมาชิกใหม่!</b>\n\n` +
+      `👤 ชื่อ: <b>${fullName}</b>\n` +
+      `📱 LINE: ${lineDisplayName || '—'}\n` +
+      (email    ? `📧 อีเมล: ${email}\n`   : '') +
+      (phone    ? `📞 โทร: ${phone}\n`     : '') +
+      (studentId? `🏷 รหัส: ${studentId}\n` : '') +
+      `🕐 เวลา: ${now}\n` +
+      `${icon} สถานะ: ${statusTh}`;
+    sendTelegramMsg(msg);
+  } catch (_) {}
 
   return { success: true, status };
 }
@@ -674,7 +697,16 @@ function updateMember(body) {
     if (studentId   !== undefined) sheet.getRange(row, 7).setValue(studentId);
     if (role        !== undefined) sheet.getRange(row, 10).setValue(role);
 
-    invalidateCache('users_rows'); // ล้าง cache ทันที
+    invalidateCache('users_rows');
+
+    // แจ้ง Telegram เมื่อเปลี่ยน status
+    if (newStatus !== undefined) {
+      try {
+        const memberName = String(rows[i][3] || rows[i][1] || targetUserId);
+        const icons = { active: '✅ อนุมัติ', inactive: '🚫 ระงับ', pending: '⏳ รออนุมัติ' };
+        sendTelegramMsg(`${icons[newStatus] || newStatus} <b>อัปเดตสมาชิก</b>\n👤 ${memberName}\nสถานะใหม่: <b>${newStatus}</b>`);
+      } catch (_) {}
+    }
     return { success: true };
   }
   return { success: false, message: 'ไม่พบผู้ใช้' };
@@ -1167,6 +1199,84 @@ function assignExamSet(body) {
 
 // ── บันทึกผลสอบ: เพิ่ม setId ใน column M ────────────────────
 // (จัดการโดย saveResult ปกติ แต่รับ setId เพิ่มเติม)
+
+// ═══════════════════════════════════════════════════════════
+//  Telegram Notification
+//  Token/ChatId เก็บใน Script Properties (ปลอดภัย ไม่อยู่ใน code)
+// ═══════════════════════════════════════════════════════════
+
+function sendTelegramMsg(text) {
+  try {
+    const props  = PropertiesService.getScriptProperties();
+    const token  = props.getProperty('TG_BOT_TOKEN')  || '';
+    const chatId = props.getProperty('TG_CHAT_ID')    || '';
+    if (!token || !chatId) return false;
+
+    const res = UrlFetchApp.fetch(
+      'https://api.telegram.org/bot' + token + '/sendMessage',
+      {
+        method:      'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        payload: JSON.stringify({
+          chat_id:    chatId,
+          text:       text,
+          parse_mode: 'HTML',
+        }),
+      }
+    );
+    const result = JSON.parse(res.getContentText());
+    return result.ok === true;
+  } catch (e) {
+    console.log('Telegram error:', e.toString());
+    return false;
+  }
+}
+
+// ── ดึง config (สำหรับหน้า Admin ตรวจสอบ) ──────────────────
+function getTelegramConfig(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const props  = PropertiesService.getScriptProperties();
+  const token  = props.getProperty('TG_BOT_TOKEN')  || '';
+  const chatId = props.getProperty('TG_CHAT_ID')    || '';
+  return {
+    success:     true,
+    hasToken:    !!token,
+    maskedToken: token  ? token.slice(0, 6) + '...' + token.slice(-4) : '',
+    chatId:      chatId,
+    configured:  !!(token && chatId),
+  };
+}
+
+// ── บันทึก config ──────────────────────────────────────────
+function setTelegramConfig(body) {
+  const { callerUserId, botToken, chatId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const props = PropertiesService.getScriptProperties();
+  // ถ้าส่งค่ามา ให้อัปเดต ถ้าไม่ส่งมา ให้คงค่าเดิม
+  if (botToken !== undefined && botToken !== '') props.setProperty('TG_BOT_TOKEN', botToken.trim());
+  if (chatId   !== undefined && chatId !== '')   props.setProperty('TG_CHAT_ID',   chatId.trim());
+  // ถ้าส่ง '' มา (ล้างค่า)
+  if (botToken === '') props.deleteProperty('TG_BOT_TOKEN');
+  if (chatId   === '') props.deleteProperty('TG_CHAT_ID');
+  return { success: true };
+}
+
+// ── ทดสอบส่งข้อความ ─────────────────────────────────────────
+function testTelegramNotify(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const now  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+  const sent = sendTelegramMsg(
+    `✅ <b>ทดสอบการแจ้งเตือน</b>\n\n` +
+    `🏫 ระบบข้อสอบออนไลน์\n` +
+    `🕐 เวลา: ${now}\n\n` +
+    `การแจ้งเตือนทำงานปกติ!`
+  );
+  return {
+    success: sent,
+    message: sent ? 'ส่งสำเร็จ! ตรวจสอบ Telegram ของคุณ' : 'ส่งไม่สำเร็จ — ตรวจสอบ Bot Token และ Chat ID',
+  };
+}
 
 // ─────────────────────────────────────────
 //  LINE API — ดึงโปรไฟล์จาก LINE
