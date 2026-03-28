@@ -5,7 +5,12 @@ import { apiGet, apiPost } from '../utils/api';
 import Spinner from '../components/Spinner';
 import ImageUploader from '../components/ImageUploader';
 
-const EMPTY_FORM = { id: '', question: '', a: '', b: '', c: '', d: '', answer: '', explanation: '', subject: '', imageUrl: '', difficulty: 'medium', tags: '' };
+const EMPTY_FORM = { id: '', question: '', a: '', b: '', c: '', d: '', answer: '', explanation: '', subject: '', imageUrl: '', difficulty: 'medium', tags: '', questionType: 'mc' };
+const QTYPE_OPTS = [
+  { val: 'mc',   label: '📋 หลายตัวเลือก', desc: 'ก ข ค ง' },
+  { val: 'tf',   label: '✅ ถูก/ผิด',      desc: 'True/False' },
+  { val: 'fill', label: '✏️ เติมคำ',       desc: 'พิมพ์คำตอบ' },
+];
 const ANSWER_OPTS = ['ก', 'ข', 'ค', 'ง'];
 const DIFF_OPTS = [
   { val: 'easy',   label: '🟢 ง่าย',   color: '#16a34a' },
@@ -119,15 +124,15 @@ export default function QuestionManagerScreen() {
   }
 
   function openEdit(q) {
-    setForm({ ...q });
+    setForm({ ...EMPTY_FORM, ...q, questionType: q.questionType || 'mc' });
     setIsEdit(true);
     setShowForm(true);
   }
 
   async function handleSave() {
     if (!form.question.trim()) return Swal.fire('แจ้งเตือน', 'กรุณากรอกคำถาม', 'warning');
-    if (!form.a.trim()) return Swal.fire('แจ้งเตือน', 'กรุณากรอกตัวเลือก ก', 'warning');
-    if (!form.answer.trim()) return Swal.fire('แจ้งเตือน', 'กรุณาเลือกคำตอบที่ถูกต้อง', 'warning');
+    if (form.questionType === 'mc' && !form.a.trim()) return Swal.fire('แจ้งเตือน', 'กรุณากรอกตัวเลือก ก', 'warning');
+    if (!form.answer.trim()) return Swal.fire('แจ้งเตือน', 'กรุณาระบุคำตอบที่ถูกต้อง', 'warning');
     if (!form.subject.trim()) return Swal.fire('แจ้งเตือน', 'กรุณากรอกวิชา', 'warning');
 
     setSaving(true);
@@ -252,6 +257,37 @@ export default function QuestionManagerScreen() {
             </datalist>
           </div>
 
+          {/* ประเภทคำถาม */}
+          <div>
+            <label className="section-label">📋 ประเภทคำถาม</label>
+            <div className="grid grid-cols-3 gap-2">
+              {QTYPE_OPTS.map(t => (
+                <button key={t.val} type="button"
+                  className="rounded-xl py-2 px-2 text-xs font-semibold text-center transition-all"
+                  style={{
+                    background: form.questionType === t.val ? 'var(--accent)' : 'var(--input-bg)',
+                    color: form.questionType === t.val ? 'white' : 'var(--text-muted)',
+                    border: `1.5px solid ${form.questionType === t.val ? 'var(--accent)' : 'var(--input-border)'}`,
+                  }}
+                  onClick={() => {
+                    const qt = t.val;
+                    setForm(p => ({
+                      ...p,
+                      questionType: qt,
+                      a: qt === 'tf' ? 'ถูก' : (qt === 'fill' ? '' : p.a),
+                      b: qt === 'tf' ? 'ผิด' : (qt === 'fill' ? '' : p.b),
+                      c: (qt === 'mc') ? p.c : '',
+                      d: (qt === 'mc') ? p.d : '',
+                      answer: qt === 'tf' ? '' : (qt === 'fill' ? '' : p.answer),
+                    }));
+                  }}>
+                  <div>{t.label}</div>
+                  <div style={{ fontSize: 10, opacity: .7 }}>{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* คำถาม */}
           <div>
             <label className="section-label">คำถาม <span className="text-red-500">*</span></label>
@@ -268,43 +304,76 @@ export default function QuestionManagerScreen() {
             />
           </div>
 
-          {/* ตัวเลือก */}
-          {['ก', 'ข', 'ค', 'ง'].map((label, i) => {
-            const key = ['a','b','c','d'][i];
-            return (
-              <div key={label}>
-                <label className="section-label">ตัวเลือก {label} {i === 0 && <span className="text-red-500">*</span>}</label>
-                <input className="themed-input" placeholder={`ตัวเลือก ${label}`} value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
-              </div>
-            );
-          })}
+          {/* ตัวเลือก — แสดงตาม questionType */}
+          {form.questionType === 'mc' && (
+            <>
+              {['ก', 'ข', 'ค', 'ง'].map((label, i) => {
+                const key = ['a','b','c','d'][i];
+                return (
+                  <div key={label}>
+                    <label className="section-label">ตัวเลือก {label} {i === 0 && <span className="text-red-500">*</span>}</label>
+                    <input className="themed-input" placeholder={`ตัวเลือก ${label}`} value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {form.questionType === 'tf' && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl p-3 text-center text-sm font-bold" style={{ background:'#f0fdf4', border:'2px solid #86efac', color:'#15803d' }}>✅ ถูก</div>
+              <div className="rounded-xl p-3 text-center text-sm font-bold" style={{ background:'#fef2f2', border:'2px solid #fca5a5', color:'#b91c1c' }}>❌ ผิด</div>
+            </div>
+          )}
+          {form.questionType === 'fill' && (
+            <div className="rounded-xl p-3 text-xs" style={{ background:'var(--input-bg)', border:'1px dashed var(--input-border)', color:'var(--text-muted)' }}>
+              ✏️ ผู้เข้าสอบจะพิมพ์คำตอบลงในช่องข้อความ
+            </div>
+          )}
 
           {/* คำตอบที่ถูกต้อง */}
           <div>
             <label className="section-label">คำตอบที่ถูกต้อง <span className="text-red-500">*</span></label>
-            <div className="flex gap-2 flex-wrap">
-              {ANSWER_OPTS.map(opt => {
-                const val = { 'ก': form.a, 'ข': form.b, 'ค': form.c, 'ง': form.d }[opt] || '';
-                const selected = form.answer === val && val;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    disabled={!val}
-                    onClick={() => setForm(p => ({ ...p, answer: val }))}
-                    className="btn rounded-xl px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
+            {form.questionType === 'mc' ? (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  {ANSWER_OPTS.map(opt => {
+                    const val = { 'ก': form.a, 'ข': form.b, 'ค': form.c, 'ง': form.d }[opt] || '';
+                    const selected = form.answer === val && val;
+                    return (
+                      <button key={opt} type="button" disabled={!val}
+                        onClick={() => setForm(p => ({ ...p, answer: val }))}
+                        className="btn rounded-xl px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
+                        style={{
+                          background: selected ? 'var(--accent)' : 'var(--input-bg)',
+                          color: selected ? 'white' : 'var(--text)',
+                          border: `1.5px solid ${selected ? 'var(--accent)' : 'var(--input-border)'}`,
+                          opacity: val ? 1 : 0.4,
+                        }}>
+                        {opt} {val ? `— ${val.substring(0, 20)}${val.length > 20 ? '...' : ''}` : '(ว่าง)'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : form.questionType === 'tf' ? (
+              <div className="flex gap-2">
+                {['ถูก', 'ผิด'].map(opt => (
+                  <button key={opt} type="button"
+                    className="flex-1 btn rounded-xl py-2 text-sm font-bold"
+                    onClick={() => setForm(p => ({ ...p, answer: opt }))}
                     style={{
-                      background: selected ? 'var(--accent)' : 'var(--input-bg)',
-                      color: selected ? 'white' : 'var(--text)',
-                      border: `1.5px solid ${selected ? 'var(--accent)' : 'var(--input-border)'}`,
-                      opacity: val ? 1 : 0.4,
-                    }}
-                  >
-                    {opt} {val ? `— ${val.substring(0, 20)}${val.length > 20 ? '...' : ''}` : '(ว่าง)'}
+                      background: form.answer === opt ? (opt === 'ถูก' ? '#16a34a' : '#dc2626') : 'var(--input-bg)',
+                      color: form.answer === opt ? 'white' : 'var(--text-muted)',
+                      border: `1.5px solid ${form.answer === opt ? (opt === 'ถูก' ? '#16a34a' : '#dc2626') : 'var(--input-border)'}`,
+                    }}>
+                    {opt === 'ถูก' ? '✅ ถูก' : '❌ ผิด'}
                   </button>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <input className="themed-input" placeholder="พิมพ์คำตอบที่ถูกต้อง (ตรวจแบบ case-insensitive)"
+                value={form.answer} onChange={e => setForm(p => ({ ...p, answer: e.target.value }))} />
+            )}
             {form.answer && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>✓ คำตอบ: {form.answer.substring(0, 40)}</p>}
           </div>
 

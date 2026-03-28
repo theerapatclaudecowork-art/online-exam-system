@@ -64,6 +64,7 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
     setOrder:      set?.setOrder      ?? 99,
     startDate:     set?.startDate     || '',
     endDate:       set?.endDate       || '',
+    pin:           '',   // ไม่แสดง PIN เก่า (server ไม่ส่งมา) — ปล่อยว่างถ้าไม่ต้องการเปลี่ยน
   });
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
@@ -305,6 +306,23 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
                     ✕ ล้างวันที่
                   </button>
                 )}
+              </div>
+
+              {/* PIN */}
+              <div className="rounded-xl p-3" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text)' }}>🔑 รหัส PIN (ถ้าต้องการ)</div>
+                <input
+                  type="password"
+                  className="themed-input w-full text-sm"
+                  placeholder={set?.hasPin ? '••••• (มี PIN อยู่แล้ว — ว่างไว้เพื่อไม่เปลี่ยน)' : 'ไม่มี PIN (เว้นว่างไว้)'}
+                  value={form.pin}
+                  onChange={e => setForm(p => ({ ...p, pin: e.target.value }))}
+                  autoComplete="new-password"
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  ผู้เข้าสอบต้องใส่รหัสนี้ก่อนเริ่มทำข้อสอบ
+                  {set?.hasPin && !form.pin && <span style={{ color: '#d97706' }}> • PIN ปัจจุบันยังคงอยู่</span>}
+                </p>
               </div>
             </div>
           )}

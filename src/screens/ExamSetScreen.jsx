@@ -10,9 +10,10 @@ import Spinner from '../components/Spinner';
 const VIS_ICON = { public: '🌐', private: '🔒' };
 
 function SetCard({ set, onStart, loading }) {
-  const totalQ    = set.subjects.reduce((s, sub) => s + Number(sub.numQ || 0), 0);
-  const hasTimer  = set.timerMin > 0;
-  const hasLimit  = set.maxAttempts > 0;
+  const totalQ      = set.subjects.reduce((s, sub) => s + Number(sub.numQ || 0), 0);
+  const hasTimer    = set.timerMin > 0;
+  const hasLimit    = set.maxAttempts > 0;
+  const limitReached = hasLimit && (set.myAttempts || 0) >= set.maxAttempts;
 
   return (
     <div className="quiz-card rounded-2xl p-4 sm:p-5">
@@ -64,8 +65,14 @@ function SetCard({ set, onStart, loading }) {
         </span>
         {hasLimit && (
           <span className="px-2 py-0.5 rounded-full"
-            style={{ background: '#fef9c3', color: '#854d0e' }}>
-            🔁 จำกัด {set.maxAttempts} ครั้ง
+            style={{ background: limitReached ? '#fee2e2' : '#fef9c3', color: limitReached ? '#b91c1c' : '#854d0e' }}>
+            🔁 {set.myAttempts || 0}/{set.maxAttempts} ครั้ง
+          </span>
+        )}
+        {set.hasPin && (
+          <span className="px-2 py-0.5 rounded-full"
+            style={{ background: '#f5f3ff', color: '#7c3aed' }}>
+            🔑 ต้องใส่ PIN
           </span>
         )}
         {set.myAttempts === 0 ? (
@@ -99,13 +106,20 @@ function SetCard({ set, onStart, loading }) {
         );
       })()}
 
+      {limitReached && (
+        <div className="text-xs px-3 py-2 rounded-xl mb-3 text-center"
+          style={{ background: '#fee2e2', border: '1px solid #fecaca', color: '#b91c1c', fontWeight: 600 }}>
+          🚫 คุณทำข้อสอบชุดนี้ครบ {set.maxAttempts} ครั้งแล้ว
+        </div>
+      )}
       <button
         className="btn btn-primary w-full rounded-xl py-3 text-base font-bold"
         onClick={() => onStart(set)}
-        disabled={loading || set.scheduleStatus === 'upcoming' || set.scheduleStatus === 'expired'}>
+        disabled={loading || set.scheduleStatus === 'upcoming' || set.scheduleStatus === 'expired' || limitReached}>
         {loading ? '⏳ กำลังโหลดข้อสอบ...'
          : set.scheduleStatus === 'upcoming' ? '🔒 ยังไม่ถึงเวลาสอบ'
          : set.scheduleStatus === 'expired'  ? '🔒 หมดเวลาสอบแล้ว'
+         : limitReached                      ? '🚫 ครบจำนวนครั้งแล้ว'
          : '▶ เริ่มทำข้อสอบชุดนี้'}
       </button>
     </div>
@@ -135,11 +149,37 @@ export default function ExamSetScreen() {
   }
 
   async function handleStart(set) {
+    // ── PIN dialog ──
+    let pinValue = '';
+    if (set.hasPin) {
+      const { value, isConfirmed } = await Swal.fire({
+        title: '🔑 ใส่รหัส PIN',
+        html: `<div style="font-size:13px;color:#6b7280;margin-bottom:8px">ชุดข้อสอบ "${set.setName}" ต้องใช้รหัส PIN</div>`,
+        input: 'password',
+        inputPlaceholder: 'รหัส PIN...',
+        inputAttributes: { autocomplete: 'off', maxlength: '20' },
+        showCancelButton: true,
+        confirmButtonText: 'ยืนยัน',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#4f46e5',
+        preConfirm: (v) => {
+          if (!v) { Swal.showValidationMessage('กรุณาใส่รหัส PIN'); }
+          return v;
+        },
+      });
+      if (!isConfirmed) return;
+      pinValue = value;
+    }
+
     setStartingId(set.setId);
     try {
       navigate('loading-quiz');
-      const data = await apiGet('getExamSetQuestions', { setId: set.setId, userId: profile.userId });
-      if (!data.success) throw new Error(data.message);
+      const data = await apiGet('getExamSetQuestions', { setId: set.setId, userId: profile.userId, ...(pinValue ? { pin: pinValue } : {}) });
+      if (!data.success) {
+        if (data.needPin) throw new Error('รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่');
+        if (data.limitReached) throw new Error(data.message);
+        throw new Error(data.message);
+      }
       if (!data.questions?.length) throw new Error('ไม่มีข้อสอบในชุดนี้');
 
       // ใช้ timerMin จาก set (override settings)

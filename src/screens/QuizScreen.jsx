@@ -56,19 +56,31 @@ export default function QuizScreen() {
     });
   }
 
+  function setFillAnswer(text) {
+    setState(prev => {
+      const answers = [...prev.answers];
+      answers[prev.idx] = text;
+      return { ...prev, answers };
+    });
+  }
+
   function prevQ() { setState(p => ({ ...p, idx: Math.max(0, p.idx - 1) })); }
 
   function nextQ() {
-    if (!state.answers[state.idx]) {
-      Swal.fire('คำเตือน', 'กรุณาเลือกคำตอบก่อนไปข้อถัดไป', 'warning');
+    const curQ = state.questions[state.idx];
+    const ans  = state.answers[state.idx];
+    if (!ans || (curQ?.questionType === 'fill' && !ans.trim())) {
+      Swal.fire('คำเตือน', 'กรุณาตอบคำถามก่อนไปข้อถัดไป', 'warning');
       return;
     }
     setState(p => ({ ...p, idx: p.idx + 1 }));
   }
 
   function confirmSubmit() {
-    if (!state.answers[state.idx]) {
-      Swal.fire('คำเตือน', 'กรุณาเลือกคำตอบก่อนส่ง', 'warning');
+    const curQ = state.questions[state.idx];
+    const ans  = state.answers[state.idx];
+    if (!ans || (curQ?.questionType === 'fill' && !ans.trim())) {
+      Swal.fire('คำเตือน', 'กรุณาตอบคำถามก่อนส่ง', 'warning');
       return;
     }
     const unanswered = state.answers.filter(a => !a).length;
@@ -97,7 +109,10 @@ export default function QuizScreen() {
     const detail = questions.map((q, i) => {
       const user    = (answers[i] || '').trim();
       const correct = (Array.isArray(q.answer) ? q.answer[0] : q.answer || '').trim();
-      const isRight = user === correct;
+      // fill type: ตรวจแบบ case-insensitive
+      const isRight = q.questionType === 'fill'
+        ? user.toLowerCase() === correct.toLowerCase()
+        : user === correct;
       if (isRight) score++;
       return { question: q.question, userAnswer: user || 'ไม่ได้ตอบ', correctAnswer: correct, isRight, explanation: q.explanation || '' };
     });
@@ -170,28 +185,64 @@ export default function QuizScreen() {
           />
         )}
 
-        {/* Options */}
-        <div className="space-y-3 mb-6">
-          {q.options.map((opt, i) => {
-            const sel = answers[idx] === opt;
-            return (
-              <div
-                key={i}
-                className={`option-card p-3 sm:p-4 rounded-xl ${sel ? 'selected' : ''}`}
-                onClick={() => selectOpt(i)}
-              >
-                <div className="flex items-start gap-3">
-                  <span
-                    className="w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-sm font-bold mt-0.5"
-                    style={{ borderColor: sel ? 'rgba(255,255,255,.6)' : 'var(--input-border)' }}
+        {/* Options — แยกตาม questionType */}
+        <div className="mb-6">
+          {q.questionType === 'fill' ? (
+            /* ── Fill in blank ── */
+            <div>
+              <label className="text-xs font-semibold mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                ✏️ พิมพ์คำตอบของคุณ
+              </label>
+              <input
+                type="text"
+                className="themed-input w-full text-base py-3"
+                placeholder="พิมพ์คำตอบที่นี่..."
+                value={answers[idx] || ''}
+                onChange={e => setFillAnswer(e.target.value)}
+                autoFocus
+              />
+            </div>
+          ) : q.questionType === 'tf' ? (
+            /* ── True / False ── */
+            <div className="grid grid-cols-2 gap-3">
+              {['ถูก', 'ผิด'].map((opt, i) => {
+                const sel = answers[idx] === opt;
+                return (
+                  <div key={i}
+                    className={`option-card rounded-2xl p-5 text-center cursor-pointer ${sel ? 'selected' : ''}`}
+                    style={{ fontSize: 18, fontWeight: 700 }}
+                    onClick={() => selectOpt(i)}>
+                    <div style={{ fontSize: 32, marginBottom: 4 }}>{opt === 'ถูก' ? '✅' : '❌'}</div>
+                    <div>{opt}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ── Multiple Choice (default) ── */
+            <div className="space-y-3">
+              {q.options.map((opt, i) => {
+                const sel = answers[idx] === opt;
+                return (
+                  <div
+                    key={i}
+                    className={`option-card p-3 sm:p-4 rounded-xl ${sel ? 'selected' : ''}`}
+                    onClick={() => selectOpt(i)}
                   >
-                    {sel ? '✓' : (LABELS[i] ?? i + 1)}
-                  </span>
-                  <span>{opt}</span>
-                </div>
-              </div>
-            );
-          })}
+                    <div className="flex items-start gap-3">
+                      <span
+                        className="w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-sm font-bold mt-0.5"
+                        style={{ borderColor: sel ? 'rgba(255,255,255,.6)' : 'var(--input-border)' }}
+                      >
+                        {sel ? '✓' : (LABELS[i] ?? i + 1)}
+                      </span>
+                      <span>{opt}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Navigation Buttons */}
