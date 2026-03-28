@@ -1,20 +1,33 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
-import { apiPost, lsDel } from '../utils/api';
+import { apiGetCached, apiPost, lsDel } from '../utils/api';
 import { AUTO_APPROVE } from '../config';
 
 export default function RegisterScreen() {
   const { navigate, profile, lineEmail } = useApp();
 
   const [form, setForm] = useState({
-    fullName: profile?.displayName || '',
-    email:    lineEmail || '',
-    phone:    '',
-    studentId: '',
+    fullName:   profile?.displayName || '',
+    email:      lineEmail || '',
+    phone:      '',
+    course:     '',
+    department: '',
   });
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors]   = useState({});
+  const [loading,  setLoading]  = useState(false);
+  const [errors,   setErrors]   = useState({});
+  const [courses,  setCourses]  = useState([]);
+  const [courseLoading, setCourseLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGetCached('getCourses', {}, 5 * 60_000);
+        if (data.success) setCourses(data.courses || []);
+      } catch (_) {}
+      finally { setCourseLoading(false); }
+    })();
+  }, []);
 
   function update(field, val) {
     setForm(prev => ({ ...prev, [field]: val }));
@@ -24,6 +37,7 @@ export default function RegisterScreen() {
   function validate() {
     const errs = {};
     if (!form.fullName.trim()) errs.fullName = 'กรุณากรอกชื่อ-นามสกุล';
+    if (!form.course)          errs.course   = 'กรุณาเลือกหลักสูตร';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = 'รูปแบบอีเมลไม่ถูกต้อง';
     if (form.phone && !/^[0-9]{9,10}$/.test(form.phone.replace(/-/g, '')))
@@ -39,19 +53,19 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       const data = await apiPost({
-        action:      'registerUser',
-        userId:      profile.userId,
+        action:          'registerUser',
+        userId:          profile.userId,
         lineDisplayName: profile.displayName,
-        pictureUrl:  profile.pictureUrl || '',
-        fullName:    form.fullName.trim(),
-        email:       form.email.trim(),
-        phone:       form.phone.trim(),
-        studentId:   form.studentId.trim(),
+        pictureUrl:      profile.pictureUrl || '',
+        fullName:        form.fullName.trim(),
+        email:           form.email.trim(),
+        phone:           form.phone.trim(),
+        course:          form.course,
+        department:      form.department.trim(),
       });
 
       if (!data.success) throw new Error(data.message || 'สมัครสมาชิกไม่สำเร็จ');
 
-      // clear user cache เพื่อให้ auth โหลดใหม่ถูกต้อง
       lsDel('exam_init_' + (profile?.userId || ''));
 
       if (AUTO_APPROVE || data.status === 'active') {
@@ -122,15 +136,41 @@ export default function RegisterScreen() {
           {errors.fullName && <p className="text-xs text-red-500 mt-1">{errors.fullName}</p>}
         </div>
 
-        {/* รหัสนักเรียน/รหัสพนักงาน (optional) */}
+        {/* หลักสูตร (required) */}
         <div>
-          <label className="section-label">รหัสนักเรียน / รหัสพนักงาน</label>
+          <label className="section-label">หลักสูตร <span className="text-red-500">*</span></label>
+          {courseLoading ? (
+            <div className="themed-input flex items-center gap-2 opacity-60">
+              <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">กำลังโหลดหลักสูตร...</span>
+            </div>
+          ) : courses.length === 0 ? (
+            <div className="themed-input text-sm opacity-60">ยังไม่มีหลักสูตรที่เปิดรับ</div>
+          ) : (
+            <select
+              className="themed-input"
+              value={form.course}
+              onChange={e => update('course', e.target.value)}
+              style={{ cursor: 'pointer' }}
+            >
+              <option value="">— เลือกหลักสูตร —</option>
+              {courses.map(c => (
+                <option key={c.courseId} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          )}
+          {errors.course && <p className="text-xs text-red-500 mt-1">{errors.course}</p>}
+        </div>
+
+        {/* หน่วยงาน (optional) */}
+        <div>
+          <label className="section-label">หน่วยงาน</label>
           <input
             className="themed-input"
-            placeholder="ไม่บังคับ"
-            value={form.studentId}
-            onChange={e => update('studentId', e.target.value)}
-            maxLength={50}
+            placeholder="ชื่อหน่วยงาน (ไม่บังคับ)"
+            value={form.department}
+            onChange={e => update('department', e.target.value)}
+            maxLength={100}
           />
         </div>
 

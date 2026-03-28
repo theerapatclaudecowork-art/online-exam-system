@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { parsePercent } from '../utils/helpers';
+import { apiGet } from '../utils/api';
+import { PASS_THRESHOLD } from '../config';
 
 const CIRCUMFERENCE = 251.2;
 
@@ -30,7 +32,7 @@ function DetailRow({ d, isRight, num }) {
 }
 
 export default function HistoryDetailScreen() {
-  const { navigate, historyDetail } = useApp();
+  const { navigate, historyDetail, setExam, settings, setSettings } = useApp();
   const [allOpen, setAllOpen] = useState(false);
   const arcRef = useRef(null);
 
@@ -150,9 +152,37 @@ export default function HistoryDetailScreen() {
         </div>
       )}
 
-      <button className="btn btn-gray w-full rounded-xl py-3" onClick={() => navigate('history')}>
-        ← กลับรายการประวัติ
-      </button>
+      <div className="grid grid-cols-2 gap-3">
+        <button className="btn btn-gray rounded-xl py-3 text-sm" onClick={() => navigate('history')}>
+          ← กลับ
+        </button>
+        <button className="btn rounded-xl py-3 text-sm font-semibold"
+          style={{ background: pass?'#3b82f6':'#ef4444', color:'white' }}
+          onClick={async () => {
+            const lesson = exam.lesson;
+            if (!lesson) return;
+            navigate('loading-quiz');
+            try {
+              const data = await apiGet('getQuestions', { lesson });
+              if (!data.success || !data.questions?.length) throw new Error('ไม่พบข้อสอบ');
+              const shuffled = [...data.questions].sort(() => Math.random()-0.5).slice(0, settings.numQ||20);
+              setExam(p => ({ ...p, lesson, setId:'', allQ:shuffled, passThreshold:PASS_THRESHOLD }));
+              navigate('quiz');
+            } catch(e) {
+              alert(e.message);
+              navigate('history');
+            }
+          }}>
+          {pass ? '🔄 สอบอีกครั้ง' : '🎯 ลองใหม่'}
+        </button>
+      </div>
+      {pass && (
+        <button className="btn w-full rounded-xl py-2.5 mt-1 text-sm font-semibold"
+          style={{ background:'#d97706', color:'white' }}
+          onClick={() => navigate('certificate')}>
+          🎓 ดูใบประกาศ
+        </button>
+      )}
     </div>
   );
 }

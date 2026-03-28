@@ -3,9 +3,15 @@ import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
 import { apiGet, apiPost } from '../utils/api';
 import Spinner from '../components/Spinner';
+import ImageUploader from '../components/ImageUploader';
 
-const EMPTY_FORM = { id: '', question: '', a: '', b: '', c: '', d: '', answer: '', explanation: '', subject: '', imageUrl: '' };
+const EMPTY_FORM = { id: '', question: '', a: '', b: '', c: '', d: '', answer: '', explanation: '', subject: '', imageUrl: '', difficulty: 'medium', tags: '' };
 const ANSWER_OPTS = ['ก', 'ข', 'ค', 'ง'];
+const DIFF_OPTS = [
+  { val: 'easy',   label: '🟢 ง่าย',   color: '#16a34a' },
+  { val: 'medium', label: '🟡 กลาง',   color: '#d97706' },
+  { val: 'hard',   label: '🔴 ยาก',    color: '#dc2626' },
+];
 
 export default function QuestionManagerScreen() {
   const { navigate, profile } = useApp();
@@ -17,8 +23,81 @@ export default function QuestionManagerScreen() {
   const [isEdit, setIsEdit]       = useState(false);
   const [filterSubject, setFilterSubject] = useState('');
   const [search, setSearch]       = useState('');
+  const [filterDiff, setFilterDiff] = useState('');
+  const [showImport, setShowImport]   = useState(false);
+  const [importRows, setImportRows]   = useState([]);
+  const [importing, setImporting]     = useState(false);
+  const [importError, setImportError] = useState('');
 
   useEffect(() => { loadAll(); }, []);
+
+  function parseCSV(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return [];
+    // detect header
+    const firstLow = lines[0].toLowerCase();
+    const hasHeader = firstLow.includes('question') || firstLow.includes('คำถาม') || firstLow.includes('subject');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    return dataLines.map(line => {
+      // split by comma but respect quoted fields
+      const cols = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+        else cur += ch;
+      }
+      cols.push(cur.trim());
+      return {
+        question:    cols[0] || '',
+        a:           cols[1] || '',
+        b:           cols[2] || '',
+        c:           cols[3] || '',
+        d:           cols[4] || '',
+        answer:      cols[5] || '',
+        explanation: cols[6] || '',
+        subject:     cols[7] || '',
+        difficulty:  cols[8] || 'medium',
+        tags:        cols[9] || '',
+      };
+    }).filter(r => r.question && r.a && r.answer && r.subject);
+  }
+
+  function handleCSVFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError('');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const rows = parseCSV(ev.target.result);
+      if (!rows.length) { setImportError('ไม่พบข้อมูล หรือรูปแบบไม่ถูกต้อง'); return; }
+      setImportRows(rows);
+      setShowImport(true);
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const data = await apiPost({
+        action: 'bulkAddQuestions',
+        callerUserId: profile.userId,
+        questions: importRows,
+      });
+      if (!data.success) throw new Error(data.message);
+      await Swal.fire({ icon: 'success', title: `นำเข้าสำเร็จ ${data.inserted} ข้อ`, timer: 2000, showConfirmButton: false });
+      setShowImport(false);
+      setImportRows([]);
+      loadAll();
+    } catch (e) {
+      Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    } finally {
+      setImporting(false);
+    }
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -95,10 +174,62 @@ export default function QuestionManagerScreen() {
   const filtered = questions.filter(q => {
     if (filterSubject && q.subject !== filterSubject) return false;
     if (search && !q.question.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterDiff && q.difficulty !== filterDiff) return false;
     return true;
   });
 
   if (loading) return <Spinner label="กำลังโหลดข้อสอบ..." />;
+
+  // Import Preview Modal
+  if (showImport) {
+    const DIFF_COLOR = { easy:'#16a34a', medium:'#d97706', hard:'#dc2626' };
+    return (
+      <div className="quiz-card rounded-2xl p-4 sm:p-6 animate-fade">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold" style={{ color: 'var(--text)' }}>📥 Preview ข้อสอบที่จะนำเข้า</h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{importRows.length} ข้อ — ตรวจสอบก่อนนำเข้า</p>
+          </div>
+          <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => setShowImport(false)}>✕ ยกเลิก</button>
+        </div>
+
+        {/* CSV Format hint */}
+        <div className="rounded-xl p-3 mb-4 text-xs" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+          <b>รูปแบบ CSV:</b> question, ก, ข, ค, ง, answer, explanation, subject, difficulty, tags<br />
+          <b>difficulty:</b> easy / medium / hard &nbsp;|&nbsp; <b>answer</b> = ข้อความของตัวเลือกที่ถูกต้อง
+        </div>
+
+        <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+          {importRows.map((q, i) => (
+            <div key={i} className="rounded-xl p-3" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+              <div className="flex gap-2 mb-1">
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--card)', color: 'var(--accent)' }}>{q.subject}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: DIFF_COLOR[q.difficulty]+'22', color: DIFF_COLOR[q.difficulty] }}>
+                  {q.difficulty==='easy'?'ง่าย':q.difficulty==='hard'?'ยาก':'กลาง'}
+                </span>
+              </div>
+              <p className="text-sm font-medium mb-1" style={{ color: 'var(--text)' }}>{i+1}. {q.question.substring(0,80)}{q.question.length>80?'...':''}</p>
+              <div className="flex flex-wrap gap-1">
+                {[q.a,q.b,q.c,q.d].filter(Boolean).map((opt,j)=>(
+                  <span key={j} className="text-xs px-2 py-0.5 rounded"
+                    style={{ background: opt===q.answer?'#dcfce7':'var(--card)', color: opt===q.answer?'#15803d':'var(--text-muted)', border: `1px solid ${opt===q.answer?'#86efac':'var(--input-border)'}` }}>
+                    {['ก','ข','ค','ง'][j]}. {opt.substring(0,20)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3">
+          <button className="btn btn-gray flex-1 rounded-xl py-2.5 text-sm" onClick={() => setShowImport(false)}>ยกเลิก</button>
+          <button className="btn btn-primary flex-1 rounded-xl py-2.5 text-sm" onClick={handleImport} disabled={importing}>
+            {importing ? '⏳ กำลังนำเข้า...' : `✅ นำเข้า ${importRows.length} ข้อ`}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Form Modal ─────────────────────────────────
   if (showForm) {
@@ -129,11 +260,12 @@ export default function QuestionManagerScreen() {
 
           {/* URL รูปภาพ */}
           <div>
-            <label className="section-label">🖼 URL รูปภาพ (ไม่บังคับ)</label>
-            <input className="themed-input" placeholder="https://..." value={form.imageUrl} onChange={e => setForm(p => ({ ...p, imageUrl: e.target.value }))} />
-            {form.imageUrl && (
-              <img src={form.imageUrl} alt="preview" className="mt-2 rounded-lg w-full object-contain" style={{ maxHeight: 160, border: '1px solid var(--input-border)' }} onError={e => e.target.style.display='none'} />
-            )}
+            <label className="section-label">🖼 รูปภาพประกอบ (ไม่บังคับ)</label>
+            <ImageUploader
+              value={form.imageUrl}
+              onChange={url => setForm(p => ({ ...p, imageUrl: url }))}
+              callerUserId={profile.userId}
+            />
           </div>
 
           {/* ตัวเลือก */}
@@ -182,6 +314,31 @@ export default function QuestionManagerScreen() {
             <textarea className="themed-input" rows={2} placeholder="อธิบายเพิ่มเติม..." value={form.explanation} onChange={e => setForm(p => ({ ...p, explanation: e.target.value }))} />
           </div>
 
+          {/* ระดับความยาก */}
+          <div>
+            <label className="section-label">🎯 ระดับความยาก</label>
+            <div className="flex gap-2">
+              {DIFF_OPTS.map(d => (
+                <button key={d.val} type="button"
+                  className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                  style={{
+                    background: form.difficulty === d.val ? d.color : 'var(--input-bg)',
+                    color: form.difficulty === d.val ? 'white' : 'var(--text-muted)',
+                    border: `1.5px solid ${form.difficulty === d.val ? d.color : 'var(--input-border)'}`,
+                  }}
+                  onClick={() => setForm(p => ({ ...p, difficulty: d.val }))}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Tags */}
+          <div>
+            <label className="section-label">🏷 Tags (คั่นด้วยเครื่องหมายจุลภาค)</label>
+            <input className="themed-input" placeholder="เช่น คณิต,เลข,ตรรกะ"
+              value={form.tags} onChange={e => setForm(p => ({ ...p, tags: e.target.value }))} />
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button className="btn btn-gray flex-1 rounded-xl py-2.5 text-sm" onClick={() => setShowForm(false)}>ยกเลิก</button>
             <button className="btn btn-primary flex-1 rounded-xl py-2.5 text-sm" onClick={handleSave} disabled={saving}>
@@ -218,9 +375,26 @@ export default function QuestionManagerScreen() {
           <input className="themed-input w-full" placeholder="🔍 ค้นหาคำถาม..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
-        <button className="btn btn-primary w-full rounded-xl py-2.5 text-sm" onClick={openAdd}>
-          ➕ เพิ่มข้อสอบใหม่
-        </button>
+        <div className="flex gap-2 flex-wrap mb-3">
+          <button className="btn text-xs rounded-lg px-2.5 py-1"
+            style={{ background: !filterDiff ? 'var(--accent)' : 'var(--input-bg)', color: !filterDiff ? 'white' : 'var(--text-muted)' }}
+            onClick={() => setFilterDiff('')}>ทั้งหมด</button>
+          {DIFF_OPTS.map(d => (
+            <button key={d.val} className="btn text-xs rounded-lg px-2.5 py-1"
+              style={{ background: filterDiff === d.val ? d.color : 'var(--input-bg)', color: filterDiff === d.val ? 'white' : 'var(--text-muted)' }}
+              onClick={() => setFilterDiff(d.val)}>{d.label}</button>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <button className="btn btn-primary w-full rounded-xl py-2.5 text-sm" onClick={openAdd}>
+            ➕ เพิ่มข้อสอบใหม่
+          </button>
+          <label className="btn btn-gray rounded-xl py-2.5 text-sm cursor-pointer flex-shrink-0 px-4" style={{ whiteSpace: 'nowrap' }}>
+            📥 Import CSV
+            <input type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
+          </label>
+        </div>
       </div>
 
       {/* Question Cards */}
@@ -233,6 +407,15 @@ export default function QuestionManagerScreen() {
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex-1">
                   <span className="text-xs px-2 py-0.5 rounded-full mr-2" style={{ background: 'var(--opt-hover)', color: 'var(--accent)' }}>{q.subject}</span>
+                  {q.difficulty && (
+                    <span className="text-xs px-2 py-0.5 rounded-full mr-2"
+                      style={{
+                        background: q.difficulty==='easy'?'#dcfce7':q.difficulty==='hard'?'#fee2e2':'#fef9c3',
+                        color: q.difficulty==='easy'?'#15803d':q.difficulty==='hard'?'#b91c1c':'#854d0e',
+                      }}>
+                      {q.difficulty==='easy'?'ง่าย':q.difficulty==='hard'?'ยาก':'กลาง'}
+                    </span>
+                  )}
                   {q.imageUrl && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>🖼</span>}
                 </div>
                 <div className="flex gap-1 flex-shrink-0">

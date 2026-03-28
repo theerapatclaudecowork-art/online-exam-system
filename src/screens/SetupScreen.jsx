@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { apiGet, apiGetCached } from '../utils/api';
 
 const THEMES = [
   { id: 'sw-white',  cls: '',         bg: '#f8fafc', border: '#cbd5e1', label: 'ขาว' },
@@ -13,12 +14,57 @@ const THEMES = [
 const TIMER_PRESETS = [10, 15, 30, 60, 90];
 const Q_PRESETS     = [10, 20, 30, 50];
 
+const ANN_COLORS = {
+  info:    { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', icon: 'ℹ️' },
+  warning: { bg: '#fffbeb', border: '#fde68a', color: '#92400e', icon: '⚠️' },
+  success: { bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d', icon: '✅' },
+};
+
 export default function SetupScreen() {
   const { navigate, profile, theme, setTheme, settings, setSettings, isAdmin } = useApp();
 
   const [timerOn,   setTimerOn]   = useState(settings.useTimer);
   const [timerMin,  setTimerMin]  = useState(settings.timerMin);
   const [numQ,      setNumQ]      = useState(settings.numQ);
+
+  // ── PWA Install Prompt ──────────────────────────────────────
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installed, setInstalled]         = useState(false);
+
+  useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    });
+    window.addEventListener('appinstalled', () => {
+      setInstallPrompt(null);
+      setInstalled(true);
+    });
+  }, []);
+
+  // ── Announcements + ExamSet badge ──────────────────────────────
+  const [announcements, setAnnouncements] = useState([]);
+  const [pendingSets,   setPendingSets]   = useState(0);  // ExamSet ที่ยังไม่ได้ทำ
+  const [totalSets,     setTotalSets]     = useState(0);  // จำนวน ExamSet ทั้งหมด
+  const [doneSets,      setDoneSets]      = useState(0);  // ทำแล้ว
+
+  useEffect(() => {
+    apiGetCached('getAnnouncements', {}, 5 * 60_000)
+      .then(d => { if (d.success) setAnnouncements(d.announcements || []); })
+      .catch(() => {});
+    apiGet('getExamSets', { userId: profile?.userId })
+      .then(d => {
+        if (d.success) {
+          const sets = d.sets || [];
+          const pending = sets.filter(s => s.myAttempts === 0).length;
+          const done    = sets.filter(s => s.myAttempts > 0).length;
+          setPendingSets(pending);
+          setTotalSets(sets.length);
+          setDoneSets(done);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function handleTimerNum(val) {
     const v = Math.max(1, parseInt(val) || 1);
@@ -39,6 +85,45 @@ export default function SetupScreen() {
   return (
     <div className="quiz-card rounded-2xl p-4 sm:p-6 lg:p-8 animate-fade">
 
+      {/* PWA Install Banner */}
+      {installPrompt && !installed && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl px-3 py-2.5"
+          style={{ background:'#eff6ff', border:'1px solid #bfdbfe' }}>
+          <span className="text-xl">📱</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold" style={{ color:'#1d4ed8' }}>ติดตั้งแอปบนมือถือ</div>
+            <div className="text-xs" style={{ color:'#1d4ed8', opacity:.8 }}>เปิดใช้งานได้เร็วขึ้น ไม่ต้องเปิด Browser</div>
+          </div>
+          <div className="flex gap-1.5">
+            <button className="btn text-xs rounded-lg px-3 py-1.5" style={{ background:'#1d4ed8', color:'white' }}
+              onClick={() => { installPrompt.prompt(); installPrompt.userChoice.then(() => setInstallPrompt(null)); }}>
+              ติดตั้ง
+            </button>
+            <button className="btn btn-gray text-xs rounded-lg px-2 py-1.5" onClick={() => setInstallPrompt(null)}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Announcements Banner ─────────────────────────── */}
+      {announcements.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {announcements.map(a => {
+            const c = ANN_COLORS[a.type] || ANN_COLORS.info;
+            return (
+              <div key={a.id} className="flex items-start gap-2 rounded-xl px-3 py-2.5"
+                style={{ background: c.bg, border: `1px solid ${c.border}` }}>
+                <span className="flex-shrink-0 text-base">{c.icon}</span>
+                <div className="flex-1 min-w-0">
+                  {a.title && <div className="text-xs font-bold truncate" style={{ color: c.color }}>{a.title}</div>}
+                  {a.body  && <div className="text-xs mt-0.5" style={{ color: c.color, opacity: .85 }}>{a.body}</div>}
+                </div>
+                {a.pinned && <span className="text-xs flex-shrink-0" style={{ color: c.color }}>📌</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Profile Row */}
       <div className="flex items-start gap-3 pb-5 mb-5" style={{ borderBottom: '1px solid var(--input-border)' }}>
         <img
@@ -50,19 +135,33 @@ export default function SetupScreen() {
           <div className="font-bold text-base sm:text-lg truncate" style={{ color: 'var(--text)' }}>{profile?.displayName}</div>
           <div className="text-xs sm:text-sm" style={{ color: 'var(--text-muted)' }}>พร้อมทำแบบทดสอบ</div>
           <div className="flex gap-2 mt-2 flex-wrap">
-            <button
-              onClick={() => navigate('history')}
-              className="btn btn-yellow rounded-xl px-3 py-1.5 text-xs sm:text-sm"
-            >
-              📊 ประวัติการสอบ
+            <button onClick={() => navigate('history')}
+              className="btn btn-yellow rounded-xl px-3 py-1.5 text-xs sm:text-sm">
+              📊 ประวัติ
+            </button>
+            <button onClick={() => navigate('myStats')}
+              className="btn rounded-xl px-3 py-1.5 text-xs sm:text-sm"
+              style={{ background: '#3b82f6', color: 'white' }}>
+              📈 สถิติฉัน
+            </button>
+            <button onClick={() => navigate('leaderboard')}
+              className="btn rounded-xl px-3 py-1.5 text-xs sm:text-sm"
+              style={{ background: '#d97706', color: 'white' }}>
+              🏆 อันดับ
+            </button>
+            <button onClick={() => navigate('profile')}
+              className="btn btn-gray rounded-xl px-3 py-1.5 text-xs sm:text-sm">
+              👤 ข้อมูล
+            </button>
+            <button onClick={() => navigate('bookmark')}
+              className="btn btn-gray rounded-xl px-3 py-1.5 text-xs sm:text-sm">
+              🔖 บันทึก
             </button>
             {isAdmin && (
-              <button
-                onClick={() => navigate('admin')}
+              <button onClick={() => navigate('admin')}
                 className="btn rounded-xl px-3 py-1.5 text-xs sm:text-sm"
-                style={{ background: 'var(--accent)', color: 'white' }}
-              >
-                ⚙️ จัดการระบบ
+                style={{ background: 'var(--accent)', color: 'white' }}>
+                ⚙️ Admin
               </button>
             )}
           </div>
@@ -150,12 +249,49 @@ export default function SetupScreen() {
         </div>
       </div>
 
+      {/* ExamSet Progress Bar */}
+      {totalSets > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="section-label" style={{ marginBottom: 0 }}>📊 ความก้าวหน้าชุดข้อสอบ</div>
+            <span className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
+              {doneSets}/{totalSets} ชุด
+            </span>
+          </div>
+          <div className="rounded-full overflow-hidden" style={{ height: 10, background: 'var(--progress-trk)' }}>
+            <div
+              style={{
+                width: `${Math.round((doneSets / totalSets) * 100)}%`,
+                height: '100%',
+                background: doneSets === totalSets ? '#22c55e' : 'var(--accent)',
+                borderRadius: 999,
+                transition: 'width .6s ease',
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <span>ทำแล้ว {doneSets} ชุด</span>
+            <span>
+              {doneSets === totalSets
+                ? '🎉 ครบทุกชุดแล้ว!'
+                : `เหลืออีก ${pendingSets} ชุด`}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ปุ่มหลัก 2 แบบ */}
       <div className="space-y-3">
-        <button className="btn w-full rounded-xl py-3 sm:py-4 text-base sm:text-lg font-bold"
+        <button className="btn w-full rounded-xl py-3 sm:py-4 text-base sm:text-lg font-bold relative"
           style={{ background: 'var(--accent)', color: 'white' }}
           onClick={() => navigate('examSets')}>
           📦&nbsp; เลือกชุดข้อสอบ
+          {pendingSets > 0 && (
+            <span className="absolute -top-2 -right-2 min-w-[22px] h-[22px] flex items-center justify-center rounded-full text-xs font-black px-1.5"
+              style={{ background: '#ef4444', color: 'white', animation: 'pulse 1.5s infinite', boxShadow: '0 0 0 3px rgba(239,68,68,.3)' }}>
+              {pendingSets}
+            </span>
+          )}
         </button>
         <button className="btn btn-gray w-full rounded-xl py-2.5 sm:py-3 text-sm sm:text-base"
           onClick={goToSubject}>

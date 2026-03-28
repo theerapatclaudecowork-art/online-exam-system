@@ -62,6 +62,8 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
     timerMin:      set?.timerMin      ?? 0,
     passThreshold: set?.passThreshold ?? 60,
     setOrder:      set?.setOrder      ?? 99,
+    startDate:     set?.startDate     || '',
+    endDate:       set?.endDate       || '',
   });
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
@@ -280,6 +282,30 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
                     onChange={e => setForm(p => ({ ...p, maxAttempts: Math.max(0, parseInt(e.target.value)||0) }))} />
                 </div>
               </label>
+              {/* ── วันเปิด/ปิด ─── */}
+              <div className="rounded-xl p-3" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>📅 กำหนดช่วงเวลาสอบ (ไม่บังคับ)</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>วันเริ่ม</span>
+                    <input type="date" className="themed-input w-full mt-1 text-sm"
+                      value={form.startDate}
+                      onChange={e => setForm(p => ({ ...p, startDate: e.target.value }))} />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>วันสิ้นสุด</span>
+                    <input type="date" className="themed-input w-full mt-1 text-sm"
+                      value={form.endDate}
+                      onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} />
+                  </label>
+                </div>
+                {(form.startDate || form.endDate) && (
+                  <button className="btn btn-gray text-xs rounded-lg px-2 py-1 mt-2"
+                    onClick={() => setForm(p => ({ ...p, startDate: '', endDate: '' }))}>
+                    ✕ ล้างวันที่
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -368,6 +394,21 @@ function ExamSetCard({ set, onEdit, onDelete, onView }) {
             <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>{set.setName}</span>
             <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
               style={{ background: st.bg, color: st.color }}>{st.label}</span>
+            {/* Schedule badge */}
+            {(() => {
+              const ss = set.scheduleStatus;
+              if (!ss || ss === 'always') return null;
+              const cfg = {
+                upcoming: { bg: '#eff6ff', color: '#1d4ed8', label: `🕐 เปิด ${set.startDate}` },
+                expired:  { bg: '#fef2f2', color: '#b91c1c', label: '⛔ หมดเวลาแล้ว' },
+                active:   set.endDate ? { bg: '#f0fdf4', color: '#15803d', label: `✅ ถึง ${set.endDate}` } : null,
+              }[ss];
+              if (!cfg) return null;
+              return (
+                <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
+                  style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
+              );
+            })()}
           </div>
           {set.description && (
             <div className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{set.description}</div>

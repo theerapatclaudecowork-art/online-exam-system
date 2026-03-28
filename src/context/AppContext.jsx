@@ -51,6 +51,9 @@ export function AppProvider({ children }) {
   const [historyList, setHistoryList]     = useState([]);
   const [historyDetail, setHistoryDetail] = useState(null); // { exam, detail }
 
+  // ── Bookmarks ──
+  const [bookmarks, setBookmarks] = useState(null); // null = not loaded yet
+
   const navigate = useCallback((scr) => setScreen(scr), []);
 
   return (
@@ -65,6 +68,7 @@ export function AppProvider({ children }) {
       subjects, setSubjects,
       historyList, setHistoryList,
       historyDetail, setHistoryDetail,
+      bookmarks, setBookmarks,
     }}>
       {children}
     </AppContext.Provider>

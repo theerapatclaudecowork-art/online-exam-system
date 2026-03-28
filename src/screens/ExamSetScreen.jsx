@@ -68,13 +68,45 @@ function SetCard({ set, onStart, loading }) {
             🔁 จำกัด {set.maxAttempts} ครั้ง
           </span>
         )}
+        {set.myAttempts === 0 ? (
+          <span className="px-2 py-0.5 rounded-full font-semibold animate-pulse"
+            style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+            🆕 ยังไม่ได้ทำ
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 rounded-full"
+            style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}>
+            ✅ ทำแล้ว {set.myAttempts} ครั้ง
+            {set.myBestScore > 0 && ` • สูงสุด ${set.myBestScore}%`}
+          </span>
+        )}
       </div>
+
+      {/* Schedule status */}
+      {set.scheduleStatus && set.scheduleStatus !== 'always' && (() => {
+        const cfgMap = {
+          upcoming: { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', text: `🕐 เปิดสอบ ${set.startDate}` },
+          expired:  { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c', text: '⛔ หมดเวลาสอบแล้ว' },
+          active:   set.endDate ? { bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d', text: `✅ สอบได้ถึง ${set.endDate}` } : null,
+        };
+        const cfg = cfgMap[set.scheduleStatus];
+        if (!cfg) return null;
+        return (
+          <div className="text-xs px-3 py-2 rounded-xl mb-3"
+            style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color, fontWeight: 600 }}>
+            {cfg.text}
+          </div>
+        );
+      })()}
 
       <button
         className="btn btn-primary w-full rounded-xl py-3 text-base font-bold"
         onClick={() => onStart(set)}
-        disabled={loading}>
-        {loading ? '⏳ กำลังโหลดข้อสอบ...' : '▶ เริ่มทำข้อสอบชุดนี้'}
+        disabled={loading || set.scheduleStatus === 'upcoming' || set.scheduleStatus === 'expired'}>
+        {loading ? '⏳ กำลังโหลดข้อสอบ...'
+         : set.scheduleStatus === 'upcoming' ? '🔒 ยังไม่ถึงเวลาสอบ'
+         : set.scheduleStatus === 'expired'  ? '🔒 หมดเวลาสอบแล้ว'
+         : '▶ เริ่มทำข้อสอบชุดนี้'}
       </button>
     </div>
   );

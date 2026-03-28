@@ -320,7 +320,7 @@ export default function ScoreScreen() {
   const color = pass ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-fade">
+    <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-bounce-in">
       <div className="text-center">
 
         {/* Donut */}
@@ -331,7 +331,7 @@ export default function ScoreScreen() {
               ref={arcRef} cx="50" cy="50" r="40" fill="none"
               stroke={color} strokeWidth="10"
               strokeDasharray={CIRCUMFERENCE} strokeDashoffset={CIRCUMFERENCE}
-              transform="rotate(-90 50 50)" className="donut-ring"
+              transform="rotate(-90 50 50)" className="donut-ring score-glow"
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -353,15 +353,15 @@ export default function ScoreScreen() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-5">
-          <div className="stat-box">
+          <div className="stat-box animate-slide-up" style={{ animationDelay: '.1s' }}>
             <div className="text-xl sm:text-2xl font-black" style={{ color: 'var(--accent)' }}>{exam.score}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ถูก</div>
           </div>
-          <div className="stat-box">
+          <div className="stat-box animate-slide-up" style={{ animationDelay: '.22s' }}>
             <div className="text-xl sm:text-2xl font-black text-red-500">{tot - exam.score}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ผิด</div>
           </div>
-          <div className="stat-box">
+          <div className="stat-box animate-slide-up" style={{ animationDelay: '.34s' }}>
             <div className="text-xl sm:text-2xl font-black text-yellow-500">{min}:{sec}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>เวลาที่ใช้</div>
           </div>

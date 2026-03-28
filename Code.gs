@@ -8,7 +8,10 @@ const SPREADSHEET_ID  = '1mGAK8fLXEfMAQbqKXD35c5JIOzKQGKtCguM-SmrcutA';
 
 const SHEET_USERS     = 'Users';
 // Users  → A:lineUserId | B:lineDisplayName | C:status(active/inactive/pending)
-//          D:fullName   | E:email           | F:phone | G:studentId | H:pictureUrl | I:วันที่สมัคร | J:role(admin/'')
+//          D:fullName   | E:email           | F:phone | G:studentId | H:pictureUrl | I:วันที่สมัคร | J:role(admin/'') | K:department | L:richMenuId
+
+const SHEET_COURSES   = 'Courses';
+// Courses → A:courseId | B:name | C:isOpen(TRUE/FALSE) | D:createdAt
 
 const SHEET_QUESTIONS = 'Questions';
 // Questions → A:id | B:คำถาม | C:ก | D:ข | E:ค | F:ง | G:คำตอบ(ข้อความ) | H:คำอธิบาย | I:หมวดหมู่
@@ -16,6 +19,14 @@ const SHEET_QUESTIONS = 'Questions';
 const SHEET_RESULTS   = 'Results';
 const SHEET_EXAMSETS  = 'ExamSets';
 // ExamSets → A:setId | B:setName | C:description | D:subjects(JSON)
+
+// ── Pre-aggregated stats sheets (Layer 1: ลด O(n) → O(1)) ──────────────────
+const SHEET_SUMMARY  = '_SummaryStats';
+// _SummaryStats  → A:userId | B:displayName | C:totalAttempts | D:totalPass | E:bestScore | F:lastAttempt | G:avgScore
+const SHEET_DAILY    = '_DailyStats';
+// _DailyStats    → A:date(yyyy-MM-dd) | B:attempts | C:pass | D:fail
+const SHEET_ANNOUNCE = '_Announcements';
+// _Announcements → A:id | B:title | C:body | D:type | E:pinned | F:createdAt | G:createdBy
 //            E:status(active/draft/inactive) | F:visibility(public/private)
 //            G:allowedUsers(csv userId) | H:maxAttempts(0=∞) | I:timerMin | J:passThreshold
 //            K:setOrder | L:createdAt | M:createdBy
@@ -71,20 +82,28 @@ function invalidateCache(key) {
 function route(action, params, body) {
   try {
     switch (action) {
-      case 'initApp':          return json(initApp(params.userId));           // ← NEW: 1 call แทน 2
+      case 'initApp':          return json(initApp(params.userId));
+      case 'initAdmin':        return json(initAdmin(params.userId));
       case 'checkUser':        return json(checkUser(params.userId));
+      case 'getMyStats':       return json(getMyStats(params.userId));
+      case 'getLeaderboard':   return json(getLeaderboard(params.userId));
+      case 'getAnnouncements': return json(getAnnouncements());
+      case 'addAnnouncement':  return json(addAnnouncement(body));
+      case 'deleteAnnouncement': return json(deleteAnnouncement(body));
       case 'registerUser':     return json(registerUser(body || params));
       case 'getSubjects':      return json(getSubjects());
       case 'getQuestions':     return json(getQuestions(params.lesson));
       case 'saveResult':       return json(saveResult(body || params));
-      case 'getHistory':       return json(getHistory(params.userId));
+      case 'getHistory':       return json(getHistory(params.userId, parseInt(params.page||'1'), parseInt(params.size||'20')));
       case 'getHistoryDetail': return json(getHistoryDetail(params.examId));
+      case 'getMyProfile':     return json(getMyProfile(params.userId));
       case 'getAdminStats':    return json(getAdminStats(params.userId));
       case 'getMembers':       return json(getMembers(params.userId));
       case 'updateMember':     return json(updateMember(body));
       case 'getMemberDetail':  return json(getMemberDetail(body));
       case 'deleteMember':     return json(deleteMember(body));
       case 'getAllResults':     return json(getAllResults(params.userId, params.page));
+      case 'exportAllResults': return json(exportAllResults(params.userId));
       case 'getAllQuestions':   return json(getAllQuestions(params.userId));
       case 'addQuestion':      return json(addQuestion(body));
       case 'updateQuestion':   return json(updateQuestion(body));
@@ -100,9 +119,33 @@ function route(action, params, body) {
       case 'getExamSetDetail':     return json(getExamSetDetail(params.callerUserId, params.setId));
       // ─────────────────────────────────────────────────────
       case 'getLineProfile':         return json(getLineProfile(params.userId, params.callerUserId));
+      case 'getUserRichMenu':        return json(getUserRichMenu(params.userId, params.callerUserId));
+      case 'getRichMenuList':        return json(getRichMenuList(params.userId));
+      case 'getRichMenuImage':       return json(getRichMenuImage(params.richMenuId, params.userId));
+      case 'linkRichMenu':           return json(linkRichMenu(body));
+      case 'unlinkRichMenu':         return json(unlinkRichMenu(body));
+      case 'bulkLinkRichMenu':       return json(bulkLinkRichMenu(body));
       case 'syncAllLineProfiles':    return json(syncAllLineProfiles(params.userId));
       case 'getMembersWithProfiles': return json(getMembersWithProfiles(params.userId));
-      case 'getTriggerStatus':         return json(getTriggerStatus(params.userId));
+      case 'getTriggerStatus':           return json(getTriggerStatus(params.userId));
+      case 'getRichMenuSyncStatus':      return json(getRichMenuSyncStatus(params.userId));
+      case 'setupRichMenuTrigger':       return json(setupRichMenuTriggerApi(params.userId));
+      case 'removeRichMenuTrigger':      return json(removeRichMenuTriggerApi(params.userId));
+      case 'syncPictureUrls':          return json(syncPictureUrlsApi(params.userId));
+      case 'runSyncNow':               return json(runSyncNow(params.key));
+      case 'checkLineToken':           return json(checkLineToken(params.key));
+      case 'setupSyncTrigger':         return json(setupSyncTriggerApi(params.userId));
+      case 'removeSyncTrigger':        return json(removeSyncTriggerApi(params.userId));
+      // ── Archive ───────────────────────────────────────────
+      case 'archiveOldResults':    return json(archiveOldResults(params.userId));
+      case 'setupArchiveTrigger':  return json(setupArchiveTrigger(params.userId));
+      case 'removeArchiveTrigger': return json(removeArchiveTrigger(params.userId));
+      // ── Courses ───────────────────────────────────────────
+      case 'getCourses':     return json(getCourses(params));
+      case 'addCourse':      return json(addCourse(body));
+      case 'updateCourse':   return json(updateCourse(body));
+      case 'deleteCourse':   return json(deleteCourse(body));
+      case 'toggleCourse':   return json(toggleCourse(body));
       // ── Telegram ──────────────────────────────────────────
       case 'getTelegramConfig':      return json(getTelegramConfig(params.userId));
       case 'setTelegramConfig':      return json(setTelegramConfig(body));
@@ -162,10 +205,12 @@ function checkUser(lineUserId) {
 //  2. สมัครสมาชิกใหม่
 // ─────────────────────────────────────────
 function registerUser(data) {
-  const { userId, lineDisplayName, pictureUrl, fullName, email, phone, studentId } = data || {};
+  const { userId, lineDisplayName, pictureUrl, fullName, email, phone, course, studentId, department } = data || {};
+  const courseVal = course || studentId || ''; // remap: ใช้ course เป็นหลัก
 
-  if (!userId)   return { success: false, message: 'ไม่พบ userId' };
-  if (!fullName) return { success: false, message: 'กรุณากรอกชื่อ-นามสกุล' };
+  if (!userId)    return { success: false, message: 'ไม่พบ userId' };
+  if (!fullName)  return { success: false, message: 'กรุณากรอกชื่อ-นามสกุล' };
+  if (!courseVal) return { success: false, message: 'กรุณาเลือกหลักสูตร' };
 
   const sheet = getSheet(SHEET_USERS);
   if (!sheet) return { success: false, message: 'ไม่พบ Sheet: ' + SHEET_USERS };
@@ -190,9 +235,11 @@ function registerUser(data) {
     String(fullName).trim().substring(0, 100),
     String(email      || '').substring(0, 200),
     String(phone      || '').substring(0, 20),
-    String(studentId  || '').substring(0, 50),
-    String(pictureUrl || '').substring(0, 500),
+    String(courseVal   || '').substring(0, 100),  // G: course
+    String(pictureUrl  || '').substring(0, 500),
     new Date(),
+    '',          // J: role (ค่าเริ่มต้นว่าง)
+    String(department || '').substring(0, 100),
   ]);
 
   invalidateCache('users_rows');
@@ -208,7 +255,8 @@ function registerUser(data) {
       `📱 LINE: ${lineDisplayName || '—'}\n` +
       (email    ? `📧 อีเมล: ${email}\n`   : '') +
       (phone    ? `📞 โทร: ${phone}\n`     : '') +
-      (studentId? `🏷 รหัส: ${studentId}\n` : '') +
+      (courseVal  ? `📚 หลักสูตร: ${courseVal}\n`  : '') +
+      (department ? `🏢 หน่วยงาน: ${department}\n` : '') +
       `🕐 เวลา: ${now}\n` +
       `${icon} สถานะ: ${statusTh}`;
     sendTelegramMsg(msg);
@@ -324,6 +372,25 @@ function saveResult(data) {
     sc, tot, pct + '%', pass, timeUsedNum, examId, detailStr, String(setId || ''),
   ]);
 
+  // ── Layer 1: อัพเดต Pre-aggregated Stats (ไม่กระทบ save หากล้มเหลว) ──
+  const isPassBool = pass === 'ผ่าน';
+  try { _updateSummaryStats(String(userId).trim(), String(displayName || ''), pct, isPassBool); } catch (_) {}
+  try { _updateDailyStat(isPassBool); } catch (_) {}
+
+  // ── Layer 2: Push Flex Message ผลสอบกลับ LINE user (fire & forget) ──
+  try {
+    pushFlexResult({
+      userId:      String(userId).trim(),
+      displayName: displayName || '',
+      lesson,
+      score:    sc,
+      total:    tot,
+      pct,
+      pass,
+      timeUsed: timeUsedNum,
+    });
+  } catch (_) {}
+
   return { success: true, examId };
 }
 
@@ -422,23 +489,69 @@ function getLiffId() {
 }
 
 // ─────────────────────────────────────────
-//  6. ดึงประวัติการสอบของ user (ไม่รวม details เพื่อประหยัด)
+//  6. ดึงประวัติการสอบของ user — Paginated + Summary
+//     page: 1-indexed | size: จำนวนต่อหน้า (5-50)
+//     summary มาจาก _SummaryStats (O(1)) ไม่ต้อง scan ทุก row
 // ─────────────────────────────────────────
-function getHistory(userId) {
+function getHistory(userId, page, size) {
   if (!userId) return { success: false, message: 'ไม่พบ userId' };
+  page = Math.max(1, parseInt(page) || 1);
+  size = Math.min(50, Math.max(5, parseInt(size) || 20));
+
+  // ── Summary จาก _SummaryStats (fast O(users)) ──────────────────
+  let summary = null;
+  try {
+    const sumSheet = getSheet(SHEET_SUMMARY);
+    if (sumSheet) {
+      const sRows = sumSheet.getDataRange().getValues();
+      for (let i = 1; i < sRows.length; i++) {
+        if (String(sRows[i][0]).trim() === String(userId).trim()) {
+          summary = {
+            totalAttempts: Number(sRows[i][2] || 0),
+            totalPass:     Number(sRows[i][3] || 0),
+            bestScore:     Number(sRows[i][4] || 0),
+            avgScore:      Number(sRows[i][6] || 0),
+          };
+          break;
+        }
+      }
+    }
+  } catch (_) {}
 
   const sheet = getSheet(SHEET_RESULTS);
-  if (!sheet) return { success: true, history: [] };
+  if (!sheet) {
+    return { success: true, history: [], total: 0, page, size, hasMore: false,
+             summary: summary || { totalAttempts: 0, totalPass: 0, bestScore: 0, avgScore: 0 } };
+  }
 
-  const rows    = sheet.getDataRange().getValues();
-  const history = [];
+  // ── Scan Results (reverse = newest first) ──────────────────────
+  const rows = sheet.getDataRange().getValues();
+  const userRows = [];
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][1]).trim() === String(userId).trim()) userRows.push(rows[i]);
+  }
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (String(row[1]).trim() !== String(userId).trim()) continue;
+  const histTotal = userRows.length;
 
-    const examId = String(row[10] || '').trim() || ('legacy_' + i);
-    history.push({
+  // Fallback summary ถ้ายังไม่มี _SummaryStats (backwards compat)
+  if (!summary) {
+    const pcts   = userRows.map(r => Number(String(r[7] || '0').replace('%', '')) || 0);
+    const passes = userRows.filter(r => String(r[8]) === 'ผ่าน').length;
+    summary = {
+      totalAttempts: histTotal,
+      totalPass:     passes,
+      bestScore:     histTotal ? Math.max.apply(null, pcts) : 0,
+      avgScore:      histTotal ? Math.round(pcts.reduce(function(a,b){return a+b;}, 0) / histTotal) : 0,
+    };
+  }
+
+  // ── Paginate ───────────────────────────────────────────────────
+  const start   = (page - 1) * size;
+  const paged   = userRows.slice(start, start + size);
+
+  const history = paged.map(function(row, idx) {
+    const examId = String(row[10] || '').trim() || ('legacy_' + (start + idx));
+    return {
       date:     formatDate(row[0]),
       lesson:   String(row[4]  || ''),
       score:    Number(row[5]  || 0),
@@ -447,11 +560,18 @@ function getHistory(userId) {
       pass:     String(row[8]  || ''),
       timeUsed: Number(row[9]  || 0),
       examId,
-    });
-  }
+    };
+  });
 
-  history.reverse(); // ใหม่ก่อน
-  return { success: true, history };
+  return {
+    success: true,
+    history,
+    total:   histTotal,
+    page,
+    size,
+    hasMore: start + size < histTotal,
+    summary,
+  };
 }
 
 // ─────────────────────────────────────────
@@ -506,15 +626,123 @@ function isAdmin(userId) {
   return false;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  initAdmin — batch: stats + trigger + rmSync + tgConfig (1 call)
+//  CacheService 20s เพื่อ cold-start ไม่ช้า
+// ══════════════════════════════════════════════════════════════
+function initAdmin(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'initAdmin_' + callerUserId;
+  const cached   = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch (_) {} }
+
+  // อ่าน PropertiesService ครั้งเดียว (ใช้ร่วมกันทั้ง 3 ฟีเจอร์)
+  const props    = PropertiesService.getScriptProperties().getProperties();
+  // อ่าน Triggers ครั้งเดียว
+  const triggers = ScriptApp.getProjectTriggers();
+
+  // ── Trigger Status ──────────────────────────────────────────
+  const hasSyncTrigger = triggers.some(t => t.getHandlerFunction() === 'syncAllLineProfilesScheduled');
+  let lastSyncLocal = '(ยังไม่เคย sync)';
+  if (props.lastSyncTime) {
+    try { lastSyncLocal = Utilities.formatDate(new Date(props.lastSyncTime), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss'); } catch (_) {}
+  }
+  let profileSyncLastTimeLocal = '(ยังไม่เคย sync)';
+  if (props.profileSyncLastTime) {
+    try { profileSyncLastTimeLocal = Utilities.formatDate(new Date(props.profileSyncLastTime), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss'); } catch (_) {}
+  }
+  const triggerData = {
+    success: true,
+    triggers: triggers.map(t => ({ funcName: t.getHandlerFunction() })),
+    hasHourlyTrigger: hasSyncTrigger, hasSyncTrigger,
+    lastSyncTime: lastSyncLocal,
+    lastSyncUpdated: props.lastSyncUpdated || '0',
+    lastSyncFailed:  props.lastSyncFailed  || '0',
+    cursor:     parseInt(props.profileSyncCursor     || '0'),
+    total:      parseInt(props.profileSyncTotal      || '0'),
+    lastBatch:  parseInt(props.profileSyncLastBatch  || '0'),
+    cyclesDone: parseInt(props.profileSyncCyclesDone || '0'),
+    updated:    parseInt(props.profileSyncUpdated    || '0'),
+    failed:     parseInt(props.profileSyncFailed     || '0'),
+    lastTime:   profileSyncLastTimeLocal,
+  };
+
+  // ── RM Sync Status ──────────────────────────────────────────
+  const hasRmTrigger = triggers.some(t => t.getHandlerFunction() === 'syncRichMenusBatch');
+  let rmLastTimeTh = '(ยังไม่เคยรัน)';
+  if (props.rmSyncLastTime) {
+    try { rmLastTimeTh = Utilities.formatDate(new Date(props.rmSyncLastTime), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss'); } catch (_) {}
+  }
+  const rmSyncData = {
+    success: true, hasRmTrigger,
+    total:      parseInt(props.rmSyncTotal      || '0', 10),
+    cursor:     parseInt(props.rmSyncCursor     || '0', 10),
+    lastBatch:  props.rmSyncLastBatch   || '—',
+    lastTime:   rmLastTimeTh,
+    updated:    props.rmSyncUpdated     || '0',
+    noMenu:     props.rmSyncNoMenu      || '0',
+    failed:     props.rmSyncFailed      || '0',
+    cyclesDone: props.rmSyncCyclesDone  || '0',
+  };
+
+  // ── Telegram Config ──────────────────────────────────────────
+  const tgToken  = props.TG_BOT_TOKEN || '';
+  const tgChatId = props.TG_CHAT_ID   || '';
+  const tgData   = {
+    success: true,
+    hasToken:    !!tgToken,
+    maskedToken: tgToken ? tgToken.slice(0, 6) + '...' + tgToken.slice(-4) : '',
+    chatId:      tgChatId,
+    configured:  !!(tgToken && tgChatId),
+  };
+
+  // ── Stats (cached 60s แยกต่างหาก เพราะ heavy) ──────────────
+  const statsKey    = 'adminStats_' + callerUserId;
+  const statsCached = cache.get(statsKey);
+  let statsData     = null;
+  if (statsCached) {
+    try { statsData = JSON.parse(statsCached); } catch (_) {}
+  }
+  if (!statsData) {
+    statsData = _computeAdminStats(callerUserId);
+    try { cache.put(statsKey, JSON.stringify(statsData), 60); } catch (_) {}
+  }
+
+  const result = {
+    success: true,
+    stats:   statsData,
+    trigger: triggerData,
+    rmSync:  rmSyncData,
+    tg:      tgData,
+  };
+
+  try { cache.put(cacheKey, JSON.stringify(result), 20); } catch (_) {}
+  return result;
+}
+
 function getAdminStats(callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
-  const users     = getSheet(SHEET_USERS);
-  const questions = getSheet(SHEET_QUESTIONS);
-  const results   = getSheet(SHEET_RESULTS);
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'adminStats_' + callerUserId;
+  const cached   = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch (_) {} }
+  const result = _computeAdminStats(callerUserId);
+  try { cache.put(cacheKey, JSON.stringify(result), 60); } catch (_) {}
+  return result;
+}
+
+function _computeAdminStats(callerUserId) {
+  const users        = getSheet(SHEET_USERS);
+  const questions    = getSheet(SHEET_QUESTIONS);
+  const results      = getSheet(SHEET_RESULTS);
+  const summarySheet = getSheet(SHEET_SUMMARY);   // _SummaryStats (per-user)
+  const dailySheet   = getSheet(SHEET_DAILY);     // _DailyStats   (per-day)
 
   // ── Users ──────────────────────────────────────────
-  const userRows      = users ? users.getDataRange().getValues().slice(1) : [];
-  const totalMembers  = userRows.length;
+  const userRows       = users ? users.getDataRange().getValues().slice(1) : [];
+  const totalMembers   = userRows.length;
   const activeMembers  = userRows.filter(r => String(r[2]).toLowerCase() === 'active').length;
   const pendingMembers = userRows.filter(r => String(r[2]).toLowerCase() === 'pending').length;
   const inactiveMembers= userRows.filter(r => String(r[2]).toLowerCase() === 'inactive').length;
@@ -531,14 +759,45 @@ function getAdminStats(callerUserId) {
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 
-  // ── Results ────────────────────────────────────────
-  const rRows      = results ? results.getDataRange().getValues().slice(1) : [];
-  const totalExams = rRows.length;
-  const passTotal  = rRows.filter(r => String(r[8]) === 'ผ่าน').length;
-  const failTotal  = totalExams - passTotal;
-  const avgPassRate = totalExams > 0 ? Math.round((passTotal / totalExams) * 100) : 0;
+  // ── KPI Totals: ใช้ _SummaryStats แทน scan Results (O(users) vs O(results)) ──
+  let totalExams = 0, passTotal = 0, failTotal = 0, avgPassRate = 0;
+  let topScorers = [];
+  const sRows = summarySheet ? summarySheet.getDataRange().getValues().slice(1) : [];
 
-  // ── Subject Stats (enhanced) ───────────────────────
+  if (sRows.length > 0) {
+    sRows.forEach(r => {
+      totalExams += Number(r[2]) || 0;
+      passTotal  += Number(r[3]) || 0;
+    });
+    failTotal  = totalExams - passTotal;
+    avgPassRate = totalExams > 0 ? Math.round((passTotal / totalExams) * 100) : 0;
+
+    // Top Scorers จาก _SummaryStats (O(users)) — ไม่ต้อง scan Results
+    topScorers = sRows
+      .filter(r => (Number(r[2]) || 0) >= 1)
+      .map(r => ({
+        name:      String(r[1] || r[0] || ''),
+        avgScore:  Number(r[6]) || 0,
+        examCount: Number(r[2]) || 0,
+        passCount: Number(r[3]) || 0,
+      }))
+      .sort((a, b) => b.avgScore - a.avgScore)
+      .slice(0, 10);
+  }
+
+  // ── Scan Results (bounded by archive = max 6 เดือน) ──────────
+  // ใช้สำหรับ subjectStats + scoreDistribution + fallback KPI
+  const rRows = results ? results.getDataRange().getValues().slice(1) : [];
+
+  // Fallback KPI ถ้ายังไม่มี _SummaryStats
+  if (sRows.length === 0) {
+    totalExams  = rRows.length;
+    passTotal   = rRows.filter(r => String(r[8]) === 'ผ่าน').length;
+    failTotal   = totalExams - passTotal;
+    avgPassRate = totalExams > 0 ? Math.round((passTotal / totalExams) * 100) : 0;
+  }
+
+  // ── Subject Stats ─────────────────────────────────
   const subjectMap = {};
   rRows.forEach(r => {
     const s    = String(r[4] || '').trim();
@@ -554,11 +813,9 @@ function getAdminStats(callerUserId) {
   const subjectStats = Object.entries(subjectMap)
     .map(([name, v]) => ({
       name,
-      count:    v.count,
-      passCount: v.pass,
-      failCount: v.count - v.pass,
-      passRate:  Math.round((v.pass / v.count) * 100),
-      avgScore:  Math.round(v.scoreSum / v.count),
+      count: v.count, passCount: v.pass, failCount: v.count - v.pass,
+      passRate:   Math.round((v.pass / v.count) * 100),
+      avgScore:   Math.round(v.scoreSum / v.count),
       avgTimeSec: Math.round(v.timeSum / v.count),
     }))
     .sort((a, b) => b.count - a.count)
@@ -568,37 +825,55 @@ function getAdminStats(callerUserId) {
   const buckets = new Array(10).fill(0);
   rRows.forEach(r => {
     const pct = Number(String(r[7] || '0').replace('%', '')) || 0;
-    const idx = Math.min(9, Math.floor(pct / 10));
-    buckets[idx]++;
+    buckets[Math.min(9, Math.floor(pct / 10))]++;
   });
   const scoreDistribution = buckets.map((count, i) => ({
-    label:  i === 9 ? '90-100' : (i * 10) + '-' + (i * 10 + 9),
-    count,
-    pass: i >= 6,    // 60%+ ถือว่าผ่าน
+    label: i === 9 ? '90-100' : (i * 10) + '-' + (i * 10 + 9),
+    count, pass: i >= 6,
   }));
 
-  // ── Daily Trend (14 วันล่าสุด) ──────────────────────
-  const today    = new Date();
-  const dayMap   = {};
-  const mbrMap   = {};
+  // ── Daily Trend: ใช้ _DailyStats (O(14) แทน O(results)) ────────
+  const today  = new Date();
+  const dayMap = {};
+  const mbrMap = {};
   for (let d = 13; d >= 0; d--) {
-    const dt = new Date(today);
+    const dt  = new Date(today);
     dt.setDate(today.getDate() - d);
-    const key = (dt.getDate()) + '/' + (dt.getMonth() + 1);
+    const key = dt.getDate() + '/' + (dt.getMonth() + 1);
     dayMap[key] = { date: key, examCount: 0, passCount: 0 };
     mbrMap[key] = { date: key, newMembers: 0 };
   }
-  rRows.forEach(r => {
-    const dt = new Date(r[0]);
-    if (isNaN(dt)) return;
-    const diffDays = Math.floor((today - dt) / 86400000);
-    if (diffDays > 13) return;
-    const key = dt.getDate() + '/' + (dt.getMonth() + 1);
-    if (dayMap[key]) {
-      dayMap[key].examCount++;
-      if (String(r[8]) === 'ผ่าน') dayMap[key].passCount++;
-    }
-  });
+
+  if (dailySheet && dailySheet.getLastRow() > 1) {
+    // Fast path: อ่านจาก _DailyStats (O(14) rows ที่ query)
+    const dRows = dailySheet.getDataRange().getValues().slice(1);
+    dRows.forEach(r => {
+      const dt = new Date(String(r[0]));
+      if (isNaN(dt)) return;
+      const diffDays = Math.floor((today - dt) / 86400000);
+      if (diffDays > 13 || diffDays < 0) return;
+      const key = dt.getDate() + '/' + (dt.getMonth() + 1);
+      if (dayMap[key]) {
+        dayMap[key].examCount += Number(r[1]) || 0;
+        dayMap[key].passCount += Number(r[2]) || 0;
+      }
+    });
+  } else {
+    // Fallback: scan Results
+    rRows.forEach(r => {
+      const dt = new Date(r[0]);
+      if (isNaN(dt)) return;
+      const diffDays = Math.floor((today - dt) / 86400000);
+      if (diffDays > 13) return;
+      const key = dt.getDate() + '/' + (dt.getMonth() + 1);
+      if (dayMap[key]) {
+        dayMap[key].examCount++;
+        if (String(r[8]) === 'ผ่าน') dayMap[key].passCount++;
+      }
+    });
+  }
+
+  // Member trend (O(users) — เร็วอยู่แล้ว)
   userRows.forEach(r => {
     const dt = new Date(r[8]);
     if (isNaN(dt)) return;
@@ -610,37 +885,33 @@ function getAdminStats(callerUserId) {
   const dailyTrend  = Object.values(dayMap);
   const memberTrend = Object.values(mbrMap);
 
-  // ── Top Scorers ────────────────────────────────────
-  const scorerMap = {};
-  rRows.forEach(r => {
-    const uid  = String(r[1] || '').trim();
-    const name = String(r[2] || uid).trim();
-    const pct  = Number(String(r[7] || '0').replace('%', '')) || 0;
-    if (!uid) return;
-    if (!scorerMap[uid]) scorerMap[uid] = { name, scoreSum: 0, count: 0, passCount: 0 };
-    scorerMap[uid].scoreSum += pct;
-    scorerMap[uid].count++;
-    if (String(r[8]) === 'ผ่าน') scorerMap[uid].passCount++;
-  });
-  const topScorers = Object.values(scorerMap)
-    .map(v => ({ name: v.name, avgScore: Math.round(v.scoreSum / v.count), examCount: v.count, passCount: v.passCount }))
-    .filter(v => v.examCount >= 1)
-    .sort((a, b) => b.avgScore - a.avgScore)
-    .slice(0, 10);
+  // Top Scorers fallback ถ้ายังไม่มี _SummaryStats
+  if (topScorers.length === 0 && rRows.length > 0) {
+    const scorerMap = {};
+    rRows.forEach(r => {
+      const uid  = String(r[1] || '').trim();
+      const name = String(r[2] || uid).trim();
+      const pct  = Number(String(r[7] || '0').replace('%', '')) || 0;
+      if (!uid) return;
+      if (!scorerMap[uid]) scorerMap[uid] = { name, scoreSum: 0, count: 0, passCount: 0 };
+      scorerMap[uid].scoreSum += pct;
+      scorerMap[uid].count++;
+      if (String(r[8]) === 'ผ่าน') scorerMap[uid].passCount++;
+    });
+    topScorers = Object.values(scorerMap)
+      .map(v => ({ name: v.name, avgScore: Math.round(v.scoreSum / v.count), examCount: v.count, passCount: v.passCount }))
+      .filter(v => v.examCount >= 1)
+      .sort((a, b) => b.avgScore - a.avgScore)
+      .slice(0, 10);
+  }
 
   return {
     success: true,
-    // KPI
     totalMembers, activeMembers, pendingMembers, inactiveMembers,
     totalQuestions, totalExams, avgPassRate,
     passFail: { pass: passTotal, fail: failTotal },
-    // Charts
-    subjectStats,
-    questionsBySubject,
-    scoreDistribution,
-    dailyTrend,
-    memberTrend,
-    topScorers,
+    subjectStats, questionsBySubject, scoreDistribution,
+    dailyTrend, memberTrend, topScorers,
   };
 }
 
@@ -668,8 +939,17 @@ function getMembers(callerUserId) {
   return { success: true, members };
 }
 
+function _clearMembersCache(callerUserId) {
+  try {
+    const c = CacheService.getScriptCache();
+    c.remove('members_' + callerUserId);
+    c.remove('initAdmin_' + callerUserId);
+    c.remove('adminStats_' + callerUserId);
+  } catch (_) {}
+}
+
 function updateMember(body) {
-  const { callerUserId, targetUserId, newStatus, fullName, email, phone, studentId, role } = body || {};
+  const { callerUserId, targetUserId, newStatus, fullName, email, phone, studentId, department, role } = body || {};
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
   if (!targetUserId) return { success: false, message: 'ไม่พบ targetUserId' };
 
@@ -690,15 +970,17 @@ function updateMember(body) {
     if (String(rows[i][0]).trim() !== String(targetUserId).trim()) continue;
 
     const row = i + 1;
-    // B=2:displayName  C=3:status  D=4:fullName  E=5:email  F=6:phone  G=7:studentId  J=10:role
+    // B=2:displayName  C=3:status  D=4:fullName  E=5:email  F=6:phone  G=7:studentId  J=10:role  K=11:department
     if (newStatus   !== undefined) sheet.getRange(row, 3).setValue(newStatus);
     if (fullName    !== undefined) sheet.getRange(row, 4).setValue(fullName);
     if (email       !== undefined) sheet.getRange(row, 5).setValue(email);
     if (phone       !== undefined) sheet.getRange(row, 6).setValue(phone);
     if (studentId   !== undefined) sheet.getRange(row, 7).setValue(studentId);
     if (role        !== undefined) sheet.getRange(row, 10).setValue(role);
+    if (department  !== undefined) sheet.getRange(row, 11).setValue(department);
 
     invalidateCache('users_rows');
+    _clearMembersCache(callerUserId);
 
     // แจ้ง Telegram เมื่อเปลี่ยน status
     if (newStatus !== undefined) {
@@ -733,10 +1015,12 @@ function getMemberDetail(body) {
       fullName:    String(uRows[i][3] || ''),
       email:       String(uRows[i][4] || ''),
       phone:       String(uRows[i][5] || ''),
-      studentId:   String(uRows[i][6] || ''),
-      pictureUrl:  String(uRows[i][7] || ''),
+      studentId:   String(uRows[i][6]  || ''),
+      pictureUrl:  String(uRows[i][7]  || ''),
       joinDate:    formatDate(uRows[i][8]),
-      role:        String(uRows[i][9] || ''),
+      role:        String(uRows[i][9]  || ''),
+      department:  String(uRows[i][10] || ''),
+      richMenuId:  String(uRows[i][11] || ''),
     };
     break;
   }
@@ -816,6 +1100,221 @@ function getAllResults(callerUserId, page) {
   }));
 
   return { success: true, results, total, pages: Math.ceil(total / pageSize) };
+}
+
+// ─────────────────────────────────────────
+//  Export ผลสอบทั้งหมดเป็น CSV (Admin only)
+//  คืน rows ทั้งหมด พร้อม email, เวลา, หน่วยงาน
+// ─────────────────────────────────────────
+function exportAllResults(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const sheet = getSheet(SHEET_RESULTS);
+  if (!sheet) return { success: true, rows: [], total: 0 };
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return { success: true, rows: [], total: 0 };
+
+  // อ่าน Users sheet เพื่อ join ข้อมูล department
+  const deptMap = {};
+  try {
+    const uSheet = getSheet('Users');
+    if (uSheet) {
+      uSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+        if (r[0]) deptMap[String(r[0])] = String(r[10] || ''); // K = department
+      });
+    }
+  } catch (_) {}
+
+  const rows = data.slice(1).reverse().map(function(r) {
+    const uid = String(r[1] || '');
+    return {
+      date:       r[0] ? Utilities.formatDate(new Date(r[0]), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss') : '',
+      userId:     uid,
+      name:       String(r[2] || ''),
+      email:      String(r[3] || ''),
+      department: deptMap[uid] || '',
+      lesson:     String(r[4] || ''),
+      score:      Number(r[5] || 0),
+      total:      Number(r[6] || 0),
+      pct:        String(r[7] || '0%'),
+      pass:       String(r[8] || ''),
+      timeUsed:   Number(r[9] || 0),
+      examId:     String(r[10] || ''),
+      setId:      String(r[12] || ''),
+    };
+  });
+
+  return { success: true, rows: rows, total: rows.length };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  สถิติส่วนตัว + วิเคราะห์จุดอ่อน
+// ─────────────────────────────────────────────────────────────────
+function getMyStats(userId) {
+  if (!userId) return { success: false, message: 'ไม่พบ userId' };
+
+  // 1. Summary จาก _SummaryStats
+  var userSummary = { totalAttempts:0, totalPass:0, bestScore:0, avgScore:0, lastAttempt:'' };
+  var rank = null, totalUsers = 0;
+  var sumSheet = getSheet(SHEET_SUMMARY);
+  if (sumSheet) {
+    var sRows = sumSheet.getDataRange().getValues().slice(1).filter(function(r){ return Number(r[2])>0; });
+    totalUsers = sRows.length;
+    var sorted = sRows.slice().sort(function(a,b){ return (Number(b[3])||0)-(Number(a[3])||0); });
+    sorted.forEach(function(r,i) {
+      if (String(r[0]).trim() === String(userId).trim()) {
+        rank = i + 1;
+        userSummary = {
+          totalAttempts: Number(r[2])||0,
+          totalPass:     Number(r[3])||0,
+          bestScore:     Number(r[4])||0,
+          lastAttempt:   r[5] ? Utilities.formatDate(new Date(r[5]),'Asia/Bangkok','dd/MM/yyyy') : '',
+          avgScore:      Math.round(Number(r[6])||0),
+        };
+      }
+    });
+  }
+
+  // 2. Subject breakdown จาก Results (scan user rows เท่านั้น)
+  var subjectMap = {};
+  var resSheet = getSheet(SHEET_RESULTS);
+  if (resSheet) {
+    var allRes = resSheet.getDataRange().getValues().slice(1);
+    allRes.filter(function(r){ return String(r[1]).trim()===String(userId).trim(); })
+      .slice(-500)
+      .forEach(function(r) {
+        var subj = String(r[4]||'ไม่ระบุ');
+        var pct  = parseInt(String(r[7]||'0').replace('%',''))||0;
+        var pass = String(r[8])==='ผ่าน';
+        if (!subjectMap[subj]) subjectMap[subj]={ subject:subj, attempts:0, pass:0, totalPct:0 };
+        subjectMap[subj].attempts++;
+        if (pass) subjectMap[subj].pass++;
+        subjectMap[subj].totalPct += pct;
+      });
+  }
+
+  var subjectStats = Object.keys(subjectMap).map(function(k) {
+    var s = subjectMap[k];
+    return {
+      subject:   s.subject,
+      attempts:  s.attempts,
+      passCount: s.pass,
+      passRate:  s.attempts>0 ? Math.round(s.pass/s.attempts*100) : 0,
+      avgScore:  s.attempts>0 ? Math.round(s.totalPct/s.attempts) : 0,
+    };
+  }).sort(function(a,b){ return a.passRate-b.passRate; });
+
+  return {
+    success: true,
+    summary: {
+      totalAttempts: userSummary.totalAttempts,
+      totalPass:     userSummary.totalPass,
+      totalFail:     userSummary.totalAttempts - userSummary.totalPass,
+      bestScore:     userSummary.bestScore,
+      avgScore:      userSummary.avgScore,
+      lastAttempt:   userSummary.lastAttempt,
+      passRate:      userSummary.totalAttempts>0 ? Math.round(userSummary.totalPass/userSummary.totalAttempts*100) : 0,
+      rank:          rank,
+      totalUsers:    totalUsers,
+    },
+    subjectStats: subjectStats,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Leaderboard — top 20 + อันดับของ caller
+// ─────────────────────────────────────────────────────────────────
+function getLeaderboard(userId) {
+  if (!userId) return { success: false, message: 'ไม่พบ userId' };
+
+  var sumSheet = getSheet(SHEET_SUMMARY);
+  if (!sumSheet) return { success:true, leaderboard:[], myRank:null, myEntry:null, totalUsers:0 };
+
+  // Join picture+fullName จาก Users
+  var picMap = {};
+  try {
+    var uRows = getSheet('Users').getDataRange().getValues().slice(1);
+    uRows.forEach(function(r){ if(r[0]) picMap[String(r[0])]={ pic:String(r[7]||''), full:String(r[3]||'') }; });
+  } catch(_){}
+
+  var sRows = sumSheet.getDataRange().getValues().slice(1)
+    .filter(function(r){ return Number(r[2])>0; });
+
+  var sorted = sRows.slice().sort(function(a,b){
+    var d = (Number(b[3])||0)-(Number(a[3])||0);
+    return d!==0 ? d : (Number(b[6])||0)-(Number(a[6])||0);
+  });
+
+  var top20 = sorted.slice(0,20).map(function(r,i) {
+    var uid = String(r[0]); var ex = picMap[uid]||{};
+    return {
+      rank:          i+1,
+      userId:        uid,
+      displayName:   String(r[1]||ex.full||'ไม่ระบุ'),
+      pictureUrl:    ex.pic||'',
+      totalAttempts: Number(r[2])||0,
+      totalPass:     Number(r[3])||0,
+      bestScore:     Number(r[4])||0,
+      avgScore:      Math.round(Number(r[6])||0),
+      isMe:          uid===String(userId),
+    };
+  });
+
+  var myIdx = sorted.findIndex(function(r){ return String(r[0])===String(userId); });
+  var myRank = myIdx!==-1 ? myIdx+1 : null;
+  var myEntry = null;
+  if (myIdx!==-1) {
+    var mr = sorted[myIdx]; var me = picMap[String(mr[0])]||{};
+    myEntry = {
+      rank:myRank, userId:String(mr[0]),
+      displayName:String(mr[1]||me.full||''), pictureUrl:me.pic||'',
+      totalAttempts:Number(mr[2])||0, totalPass:Number(mr[3])||0,
+      bestScore:Number(mr[4])||0, avgScore:Math.round(Number(mr[6])||0),
+    };
+  }
+
+  return { success:true, leaderboard:top20, myRank:myRank, myEntry:myEntry, totalUsers:sorted.length };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  ประกาศ (Announcements)
+// ─────────────────────────────────────────────────────────────────
+function getAnnouncements() {
+  var sh = getSheet(SHEET_ANNOUNCE);
+  if (!sh) return { success:true, announcements:[] };
+  var rows = sh.getDataRange().getValues().slice(1)
+    .filter(function(r){ return r[0]; })
+    .map(function(r) {
+      return {
+        id:        String(r[0]),
+        title:     String(r[1]||''),
+        body:      String(r[2]||''),
+        type:      String(r[3]||'info'),
+        pinned:    r[4]===true||String(r[4]).toUpperCase()==='TRUE',
+        createdAt: r[5] ? Utilities.formatDate(new Date(r[5]),'Asia/Bangkok','dd/MM/yyyy') : '',
+      };
+    })
+    .sort(function(a,b){ return (b.pinned?1:0)-(a.pinned?1:0); });
+  return { success:true, announcements:rows };
+}
+
+function addAnnouncement(body) {
+  if (!isAdmin(body.callerUserId)) return { success:false, message:'ไม่มีสิทธิ์' };
+  var sh = _ensureSheet(SHEET_ANNOUNCE, ['id','title','body','type','pinned','createdAt','createdBy']);
+  var id = 'ANN_'+Date.now();
+  sh.appendRow([id, body.title||'', body.body||'', body.type||'info', body.pinned||false, new Date(), body.callerUserId]);
+  return { success:true, id:id };
+}
+
+function deleteAnnouncement(body) {
+  if (!isAdmin(body.callerUserId)) return { success:false, message:'ไม่มีสิทธิ์' };
+  var sh = getSheet(SHEET_ANNOUNCE);
+  if (!sh) return { success:false, message:'ไม่พบ sheet' };
+  var data = sh.getDataRange().getValues();
+  for (var i=1; i<data.length; i++) {
+    if (String(data[i][0])===String(body.id)) { sh.deleteRow(i+1); return { success:true }; }
+  }
+  return { success:false, message:'ไม่พบประกาศ' };
 }
 
 function getAllQuestions(callerUserId) {
@@ -957,6 +1456,27 @@ function getExamSets(userId) {
       return s.allowedUsers.includes(String(userId || ''));
     })
     .sort((a, b) => a.setOrder - b.setOrder);
+
+  // เพิ่ม myAttempts + myBestScore ต่อ set (scan Results)
+  try {
+    var resSheet = getSheet(SHEET_RESULTS);
+    if (resSheet && userId) {
+      var resRows = resSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return String(r[1]).trim()===String(userId).trim() && r[12]; });
+      var attMap = {}, bestMap = {};
+      resRows.forEach(function(r) {
+        var sid = String(r[12]);
+        attMap[sid]  = (attMap[sid]||0)+1;
+        var pct = parseInt(String(r[7]||'0').replace('%',''))||0;
+        bestMap[sid] = Math.max(bestMap[sid]||0, pct);
+      });
+      sets.forEach(function(s) {
+        s.myAttempts  = attMap[s.setId]  || 0;
+        s.myBestScore = bestMap[s.setId] || 0;
+      });
+    }
+  } catch(_) {}
+
   return { success: true, sets };
 }
 
@@ -1211,22 +1731,25 @@ function sendTelegramMsg(text) {
     const props  = PropertiesService.getScriptProperties();
     const token  = props.getProperty('TG_BOT_TOKEN')  || '';
     const chatId = props.getProperty('TG_CHAT_ID')    || '';
-    if (!token || !chatId) return false;
-
+    if (!token || !chatId) {
+      console.log('Telegram: missing token or chatId');
+      return false;
+    }
     const res = UrlFetchApp.fetch(
       'https://api.telegram.org/bot' + token + '/sendMessage',
       {
-        method:      'post',
-        contentType: 'application/json',
+        method:             'post',
         muteHttpExceptions: true,
-        payload: JSON.stringify({
-          chat_id:    chatId,
-          text:       text,
+        payload: {
+          chat_id:    String(chatId),
+          text:       String(text),
           parse_mode: 'HTML',
-        }),
+        },
       }
     );
-    const result = JSON.parse(res.getContentText());
+    const body   = res.getContentText();
+    console.log('Telegram response:', body);
+    const result = JSON.parse(body);
     return result.ok === true;
   } catch (e) {
     console.log('Telegram error:', e.toString());
@@ -1263,20 +1786,41 @@ function setTelegramConfig(body) {
   return { success: true };
 }
 
+
 // ── ทดสอบส่งข้อความ ─────────────────────────────────────────
 function testTelegramNotify(callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
-  const now  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
-  const sent = sendTelegramMsg(
-    `✅ <b>ทดสอบการแจ้งเตือน</b>\n\n` +
-    `🏫 ระบบข้อสอบออนไลน์\n` +
-    `🕐 เวลา: ${now}\n\n` +
-    `การแจ้งเตือนทำงานปกติ!`
-  );
-  return {
-    success: sent,
-    message: sent ? 'ส่งสำเร็จ! ตรวจสอบ Telegram ของคุณ' : 'ส่งไม่สำเร็จ — ตรวจสอบ Bot Token และ Chat ID',
-  };
+  const props  = PropertiesService.getScriptProperties();
+  const token  = props.getProperty('TG_BOT_TOKEN') || '';
+  const chatId = props.getProperty('TG_CHAT_ID')   || '';
+  if (!token || !chatId) {
+    return { success: false, message: 'ยังไม่ได้ตั้งค่า Bot Token หรือ Chat ID' };
+  }
+  const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+  // ส่งตรงๆ เพื่อดู response
+  try {
+    const res  = UrlFetchApp.fetch(
+      'https://api.telegram.org/bot' + token + '/sendMessage',
+      {
+        method: 'post', muteHttpExceptions: true,
+        payload: {
+          chat_id:    String(chatId),
+          text:       `✅ <b>ทดสอบการแจ้งเตือน</b>\n\n🏫 ระบบข้อสอบออนไลน์\n🕐 เวลา: ${now}\n\nการแจ้งเตือนทำงานปกติ!`,
+          parse_mode: 'HTML',
+        },
+      }
+    );
+    const body   = res.getContentText();
+    const result = JSON.parse(body);
+    console.log('testTelegramNotify response:', body);
+    return {
+      success:   result.ok === true,
+      message:   result.ok ? 'ส่งสำเร็จ! ตรวจสอบ Telegram ของคุณ' : ('Telegram API error: ' + (result.description || body)),
+      apiResult: result,
+    };
+  } catch (e) {
+    return { success: false, message: 'Exception: ' + e.toString() };
+  }
 }
 
 // ── ดึง Chat ID จาก getUpdates (ช่วย debug) ─────────────────
@@ -1348,6 +1892,180 @@ function fetchLineProfile(lineUserId) {
   } catch (_) { return null; }
 }
 
+// ── Rich Menu Management ─────────────────────────────────────
+
+// ดึงรายการ Rich Menu ทั้งหมดของ bot
+function getRichMenuList(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/list', {
+    method: 'get', muteHttpExceptions: true,
+    headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN }
+  });
+  if (res.getResponseCode() !== 200) return { success: false, message: res.getContentText() };
+  const { richmenus } = JSON.parse(res.getContentText());
+  return {
+    success: true,
+    richMenus: (richmenus || []).map(m => ({
+      richMenuId:  m.richMenuId,
+      name:        m.name,
+      chatBarText: m.chatBarText,
+      selected:    m.selected,
+      size:        m.size,
+      areaCount:   (m.areas || []).length,
+    })),
+  };
+}
+
+// ดึงรูป Rich Menu เป็น base64 dataURL (สำหรับ preview ใน Admin UI)
+function getRichMenuImage(richMenuId, callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!richMenuId) return { success: false, message: 'ไม่พบ richMenuId' };
+  try {
+    const res = UrlFetchApp.fetch(
+      'https://api.line.me/v2/bot/richmenu/' + encodeURIComponent(richMenuId) + '/content',
+      { method: 'get', muteHttpExceptions: true,
+        headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN } }
+    );
+    if (res.getResponseCode() !== 200) return { success: false, message: 'ไม่พบรูป: ' + res.getContentText() };
+    const mime    = (res.getHeaders()['Content-Type'] || 'image/jpeg').split(';')[0];
+    const base64  = Utilities.base64Encode(res.getContent());
+    return { success: true, dataUrl: 'data:' + mime + ';base64,' + base64 };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// helper: เขียน richMenuId ลง column L ของ user ใน sheet
+function _writeRichMenuIdToSheet(targetUserId, richMenuIdVal) {
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return;
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(targetUserId).trim()) {
+      sheet.getRange(i + 1, 12).setValue(richMenuIdVal || '');
+      return;
+    }
+  }
+}
+
+// Link rich menu ให้ user คนเดียว
+function linkRichMenu(body) {
+  const { callerUserId, targetUserId, richMenuId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId || !richMenuId) return { success: false, message: 'ข้อมูลไม่ครบ' };
+  const res = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/user/' + encodeURIComponent(targetUserId) + '/richmenu/' + encodeURIComponent(richMenuId),
+    { method: 'post', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN } }
+  );
+  if (res.getResponseCode() !== 200) return { success: false, message: res.getContentText() };
+  _writeRichMenuIdToSheet(targetUserId, richMenuId);
+  invalidateCache('users_rows');
+  return { success: true };
+}
+
+// Unlink rich menu จาก user คนเดียว
+function unlinkRichMenu(body) {
+  const { callerUserId, targetUserId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ targetUserId' };
+  const res = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/user/' + encodeURIComponent(targetUserId) + '/richmenu',
+    { method: 'delete', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN } }
+  );
+  if (res.getResponseCode() !== 200) return { success: false, message: res.getContentText() };
+  _writeRichMenuIdToSheet(targetUserId, '');
+  invalidateCache('users_rows');
+  return { success: true };
+}
+
+// Bulk link rich menu ให้หลาย user พร้อมกัน (สูงสุด 150 คนต่อ request)
+function bulkLinkRichMenu(body) {
+  const { callerUserId, userIds, richMenuId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!Array.isArray(userIds) || !userIds.length || !richMenuId)
+    return { success: false, message: 'ข้อมูลไม่ครบ' };
+
+  const headers = { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN, 'Content-Type': 'application/json' };
+  let successCount = 0, failCount = 0;
+
+  for (let i = 0; i < userIds.length; i += 150) {
+    const batch = userIds.slice(i, i + 150);
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/bulk/link', {
+      method: 'post', muteHttpExceptions: true, headers,
+      payload: JSON.stringify({ richMenuId, userIds: batch }),
+    });
+    if (res.getResponseCode() === 200) successCount += batch.length;
+    else { failCount += batch.length; console.log('bulk link error:', res.getContentText()); }
+  }
+
+  // อัปเดต column L ใน sheet สำหรับ user ที่ส่งสำเร็จ
+  if (successCount > 0) {
+    const sheet = getSheet(SHEET_USERS);
+    if (sheet) {
+      const rows = sheet.getDataRange().getValues();
+      const uidSet = new Set(userIds.map(u => String(u).trim()));
+      for (let i = 1; i < rows.length; i++) {
+        if (uidSet.has(String(rows[i][0]).trim())) {
+          sheet.getRange(i + 1, 12).setValue(richMenuId);
+        }
+      }
+      invalidateCache('users_rows');
+    }
+  }
+  return { success: true, successCount, failCount, total: userIds.length };
+}
+
+// ดึง Rich Menu ที่ user ใช้อยู่ + รายละเอียด rich menu
+function getUserRichMenu(targetUserId, callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!targetUserId) return { success: false, message: 'ไม่พบ userId' };
+
+  const headers = { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN };
+
+  // 1) หา richMenuId ที่ link กับ user นี้
+  const linkRes = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/user/' + encodeURIComponent(targetUserId) + '/richmenu',
+    { method: 'get', muteHttpExceptions: true, headers }
+  );
+
+  if (linkRes.getResponseCode() === 404) {
+    return { success: true, linked: false, message: 'ผู้ใช้นี้ไม่มี Rich Menu ที่กำหนดเฉพาะ (ใช้ default หรือไม่มี)' };
+  }
+  if (linkRes.getResponseCode() !== 200) {
+    return { success: false, message: 'LINE API error: ' + linkRes.getContentText() };
+  }
+
+  const { richMenuId } = JSON.parse(linkRes.getContentText());
+
+  // 2) ดึงรายละเอียด rich menu
+  const menuRes = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/richmenu/' + richMenuId,
+    { method: 'get', muteHttpExceptions: true, headers }
+  );
+
+  let menuDetail = null;
+  if (menuRes.getResponseCode() === 200) {
+    menuDetail = JSON.parse(menuRes.getContentText());
+  }
+
+  return {
+    success:    true,
+    linked:     true,
+    richMenuId,
+    name:       menuDetail?.name        || '',
+    chatBarText:menuDetail?.chatBarText || '',
+    selected:   menuDetail?.selected    ?? null,
+    size:       menuDetail?.size        || null,
+    areas:      (menuDetail?.areas || []).map(a => ({
+      label:  a.action?.label || a.action?.text || a.action?.type || '',
+      type:   a.action?.type  || '',
+      data:   a.action?.data  || a.action?.uri  || a.action?.text || '',
+    })),
+  };
+}
+
 // ดึงโปรไฟล์ user 1 คน (เรียกจาก client)
 function getLineProfile(targetUserId, callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
@@ -1358,41 +2076,155 @@ function getLineProfile(targetUserId, callerUserId) {
 }
 
 // ─────────────────────────────────────────
-//  LINE Profile Sync (ตั้ง trigger ทุก 1 ชม.)
+//  Sync Picture URL จาก LINE API → column H
+//  รันจาก GAS Editor ได้โดยตรง (ไม่ต้อง parameter)
+// ─────────────────────────────────────────
+// ── รันครั้งเดียวเพื่อ authorize + ติดตั้ง trigger อัตโนมัติ ──
+function firstTimeSetup() {
+  // 1) ทดสอบ UrlFetchApp (บังคับขอ permission)
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN }
+  });
+
+  // 2) ลบ trigger เก่า แล้วสร้างใหม่ทุก 10 นาที
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'syncAllLineProfilesScheduled') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('syncAllLineProfilesScheduled')
+    .timeBased().everyMinutes(10).create();
+
+  // 3) sync ทันทีเพื่อทดสอบ
+  syncAllLineProfilesScheduled();
+
+  console.log('✅ Setup done! Auto sync ทุก 10 นาที ติดตั้งแล้ว');
+  console.log('📊 ดูผลใน PropertiesService: lastSyncUpdated / lastSyncFailed');
+}
+
+// ── debug: ทดสอบ LINE API กับ userId แถวแรกที่มีค่า ──────────
+function debugLineApi() {
+  const sheet   = getSheet(SHEET_USERS);
+  const rows    = sheet.getRange(2, 1, Math.min(sheet.getLastRow() - 1, 5), 1).getValues();
+  const firstId = rows.find(r => String(r[0]).trim())?.[0];
+  if (!firstId) { console.log('No userId found'); return; }
+
+  console.log('Testing userId:', firstId);
+  const res  = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/profile/' + encodeURIComponent(firstId),
+    { method: 'get', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN } }
+  );
+  console.log('HTTP Status:', res.getResponseCode());
+  console.log('Response:', res.getContentText());
+}
+
+function syncPictureUrls() {
+  const sheet    = getSheet(SHEET_USERS);
+  const startRow = 2;
+  const endRow   = Math.min(sheet.getLastRow(), startRow + 199); // สูงสุด 200 แถว
+
+  let updated = 0, failed = 0, skipped = 0;
+
+  for (var i = startRow; i <= endRow; i++) {
+    var userId = sheet.getRange(i, 1).getValue(); // col A: lineUserId
+    if (!userId) { skipped++; continue; }
+
+    try {
+      var res    = UrlFetchApp.fetch(
+        'https://api.line.me/v2/bot/profile/' + userId,
+        { method: 'get', muteHttpExceptions: true,
+          headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN } }
+      );
+      var result = JSON.parse(res.getContentText());
+
+      if (result.pictureUrl) {
+        sheet.getRange(i, 8).setValue(result.pictureUrl); // col H
+        updated++;
+      } else {
+        // บันทึก error ไว้ดู (ถ้ามี)
+        console.log('Row ' + i + ' no pictureUrl: ' + res.getContentText());
+        failed++;
+      }
+    } catch (e) {
+      console.log('Row ' + i + ' error: ' + e.toString());
+      failed++;
+    }
+
+    if (i % 10 === 0) console.log('Progress: row ' + i);
+    Utilities.sleep(300);
+  }
+
+  PropertiesService.getScriptProperties().setProperties({
+    lastSyncTime:    new Date().toISOString(),
+    lastSyncUpdated: String(updated),
+    lastSyncFailed:  String(failed),
+  });
+  console.log('syncPictureUrls done — updated:' + updated + ' failed:' + failed + ' skipped:' + skipped);
+}
+
+// ─────────────────────────────────────────
+//  LINE Profile Sync (trigger ทุก 10 นาที)
 // ─────────────────────────────────────────
 
 // ฟังก์ชันหลักที่ Time-driven Trigger เรียก (ไม่เช็ค admin)
+// sync โปรไฟล์ LINE แบบ cursor-based ทำงานต่อเนื่องไม่รู้จบ
+const SYNC_BATCH = 100;
+
 function syncAllLineProfilesScheduled() {
   const sheet = getSheet(SHEET_USERS);
   if (!sheet) return;
 
-  const rows = sheet.getDataRange().getValues();
-  let updatedCount = 0;
-  let failedCount  = 0;
+  const allRows  = sheet.getDataRange().getValues();
+  const dataRows = allRows.slice(1).filter(r => String(r[0]).trim()); // กรองแถวที่มี userId
+  const total    = dataRows.length;
+  if (total < 1) return;
 
-  for (let i = 1; i < rows.length; i++) {
-    const uid = String(rows[i][0] || '').trim();
-    if (!uid) continue;
+  const props  = PropertiesService.getScriptProperties();
+  let cursor   = parseInt(props.getProperty('profileSyncCursor') || '0');
+  if (cursor >= total) cursor = 0;
 
-    const lp = fetchLineProfile(uid);
-    if (!lp) { failedCount++; continue; }
+  const end      = Math.min(cursor + SYNC_BATCH, total);
+  const batch    = dataRows.slice(cursor, end);
+  const sheetRow = cursor + 2; // 1-indexed + header
 
-    // อัปเดต displayName (col B=2) และ pictureUrl (col H=8)
-    if (lp.displayName) sheet.getRange(i + 1, 2).setValue(lp.displayName);
-    if (lp.pictureUrl)  sheet.getRange(i + 1, 8).setValue(lp.pictureUrl);
-    updatedCount++;
+  let updated = 0, failed = 0;
 
-    Utilities.sleep(100); // หน่วงเพื่อไม่ให้ rate limit
+  // เตรียม array สำหรับ batch write
+  const nameArr  = batch.map(r => [r[1]]);
+  const photoArr = batch.map(r => [r[7]]);
+
+  for (let i = 0; i < batch.length; i++) {
+    const uid = String(batch[i][0]).trim();
+    const lp  = fetchLineProfile(uid);
+    if (!lp) { failed++; continue; }
+    if (lp.displayName) nameArr[i]  = [lp.displayName];
+    if (lp.pictureUrl)  photoArr[i] = [lp.pictureUrl];
+    updated++;
   }
 
-  // บันทึกเวลา sync ล่าสุดใน PropertiesService
-  PropertiesService.getScriptProperties().setProperties({
-    lastSyncTime:    new Date().toISOString(),
-    lastSyncUpdated: String(updatedCount),
-    lastSyncFailed:  String(failedCount),
+  // batch write
+  sheet.getRange(sheetRow, 2, batch.length, 1).setValues(nameArr);
+  sheet.getRange(sheetRow, 8, batch.length, 1).setValues(photoArr);
+
+  const nextCursor = end >= total ? 0 : end;
+  const prevCycles = parseInt(props.getProperty('profileSyncCyclesDone') || '0');
+  const cyclesDone = nextCursor === 0 ? prevCycles + 1 : prevCycles;
+
+  props.setProperties({
+    profileSyncCursor:     String(nextCursor),
+    profileSyncTotal:      String(total),
+    profileSyncLastBatch:  String(batch.length),
+    profileSyncLastTime:   new Date().toISOString(),
+    profileSyncUpdated:    String(updated),
+    profileSyncFailed:     String(failed),
+    profileSyncCyclesDone: String(cyclesDone),
+    lastSyncTime:          new Date().toISOString(),
+    lastSyncUpdated:       String(updated),
+    lastSyncFailed:        String(failed),
   });
 
-  console.log('LINE profile sync done — updated:' + updatedCount + ' failed:' + failedCount);
+  console.log('Profile sync — cursor:' + cursor + '→' + nextCursor + '/' + total + ' updated:' + updated + ' failed:' + failed);
 }
 
 // Sync โปรไฟล์ทุกคนจาก LINE API แล้วอัปเดต Sheets (เรียกจาก admin client)
@@ -1411,6 +2243,14 @@ function syncAllLineProfiles(callerUserId) {
 // ดึง Members จาก Sheet (ข้อมูลถูก sync โดย trigger แล้ว — ไม่เรียก LINE API ซ้ำ)
 function getMembersWithProfiles(callerUserId) {
   if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+
+  // ── CacheService (30s) ────────────────────────
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'members_' + callerUserId;
+  const cached   = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (_) {}
+  }
 
   const sheet = getSheet(SHEET_USERS);
   if (!sheet) return { success: true, members: [], lastSyncTime: '' };
@@ -1433,11 +2273,12 @@ function getMembersWithProfiles(callerUserId) {
       fullName:          String(rows[i][3] || ''),
       email:             String(rows[i][4] || ''),
       phone:             String(rows[i][5] || ''),
-      studentId:         String(rows[i][6] || ''),
+      studentId:         String(rows[i][6]  || ''),
       pictureUrl:        pictureUrl,
       joinDate:          formatDate(rows[i][8]),
-      role:              String(rows[i][9] || ''),
-      // LINE data จาก Sheet (ถูก sync แล้ว)
+      role:              String(rows[i][9]  || ''),
+      department:        String(rows[i][10] || ''),
+      richMenuId:        String(rows[i][11] || ''),
       lineFound:         !!pictureUrl,
       linePictureUrl:    pictureUrl,
       lineDisplayName:   displayName,
@@ -1445,31 +2286,182 @@ function getMembersWithProfiles(callerUserId) {
     });
   }
 
-  return {
+  const result = {
     success:      true,
     members,
     lastSyncTime: props.lastSyncTime || '',
   };
+
+  try { cache.put(cacheKey, JSON.stringify(result), 30); } catch (_) {}
+  return result;
 }
 
 // ─────────────────────────────────────────
 //  Trigger Management
 // ─────────────────────────────────────────
 
-// ติดตั้ง Time-driven Trigger ทุก 1 ชม.
-// ** รันฟังก์ชันนี้ครั้งเดียวจาก Apps Script Editor **
+// ─────────────────────────────────────────
+//  Rich Menu Sync Trigger (ทำงานไม่รู้จบ)
+//  วนไปเรื่อยๆ ทีละ 100 user ต่อรอบ
+// ─────────────────────────────────────────
+const RM_BATCH = 100;
+
+function syncRichMenusBatch() {
+  const sheet    = getSheet(SHEET_USERS);
+  if (!sheet) return;
+
+  const allRows  = sheet.getDataRange().getValues();
+  const dataRows = allRows.slice(1); // ข้าม header
+  const total    = dataRows.length;
+  if (total === 0) return;
+
+  const props    = PropertiesService.getScriptProperties();
+  let   cursor   = parseInt(props.getProperty('rmSyncCursor') || '0', 10);
+  if (isNaN(cursor) || cursor >= total) cursor = 0; // wrap กลับต้น
+
+  const end      = Math.min(cursor + RM_BATCH, total);
+  const batch    = dataRows.slice(cursor, end); // 100 แถว
+
+  const headers  = { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN };
+  let updated = 0, noMenu = 0, failed = 0;
+
+  // เก็บผล [rowIndex, richMenuId] แล้ว batch write ครั้งเดียว
+  const writes = []; // { sheetRow, value }
+
+  for (let i = 0; i < batch.length; i++) {
+    const uid = String(batch[i][0] || '').trim();
+    if (!uid) continue;
+
+    try {
+      const res  = UrlFetchApp.fetch(
+        'https://api.line.me/v2/bot/user/' + encodeURIComponent(uid) + '/richmenu',
+        { method: 'get', muteHttpExceptions: true, headers }
+      );
+      const code = res.getResponseCode();
+      const sheetRow = cursor + i + 2; // +2 = header row + 1-indexed
+
+      if (code === 200) {
+        const rmId = JSON.parse(res.getContentText()).richMenuId || '';
+        writes.push({ sheetRow, value: rmId });
+        updated++;
+      } else if (code === 404) {
+        writes.push({ sheetRow, value: '' }); // ไม่มี rich menu เฉพาะ
+        noMenu++;
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+      console.log('rmSync error uid=' + uid + ': ' + e);
+    }
+  }
+
+  // batch write column L
+  if (writes.length > 0) {
+    writes.forEach(w => sheet.getRange(w.sheetRow, 12).setValue(w.value));
+    invalidateCache('users_rows');
+  }
+
+  // คำนวณ cursor ถัดไป (วนไม่รู้จบ)
+  const nextCursor = end >= total ? 0 : end;
+
+  // บันทึกสถานะ
+  props.setProperties({
+    rmSyncCursor:      String(nextCursor),
+    rmSyncTotal:       String(total),
+    rmSyncLastBatch:   `${cursor + 1}–${end}`,
+    rmSyncLastTime:    new Date().toISOString(),
+    rmSyncUpdated:     String(updated),
+    rmSyncNoMenu:      String(noMenu),
+    rmSyncFailed:      String(failed),
+    rmSyncCyclesDone:  String(
+      parseInt(props.getProperty('rmSyncCyclesDone') || '0', 10) +
+      (nextCursor === 0 ? 1 : 0)
+    ),
+  });
+
+  console.log(`rmSync batch ${cursor + 1}–${end}/${total} | updated:${updated} noMenu:${noMenu} failed:${failed} | next:${nextCursor}`);
+}
+
+// ดูสถานะ Rich Menu Sync
+function getRichMenuSyncStatus(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  const props    = PropertiesService.getScriptProperties().getProperties();
+  const triggers = ScriptApp.getProjectTriggers();
+  const hasRmTrigger = triggers.some(t => t.getHandlerFunction() === 'syncRichMenusBatch');
+
+  let lastTimeTh = '(ยังไม่เคยรัน)';
+  if (props.rmSyncLastTime) {
+    try { lastTimeTh = Utilities.formatDate(new Date(props.rmSyncLastTime), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss'); } catch (_) {}
+  }
+  return {
+    success:        true,
+    hasRmTrigger,
+    total:          parseInt(props.rmSyncTotal    || '0', 10),
+    cursor:         parseInt(props.rmSyncCursor   || '0', 10),
+    lastBatch:      props.rmSyncLastBatch   || '—',
+    lastTime:       lastTimeTh,
+    updated:        props.rmSyncUpdated     || '0',
+    noMenu:         props.rmSyncNoMenu      || '0',
+    failed:         props.rmSyncFailed      || '0',
+    cyclesDone:     props.rmSyncCyclesDone  || '0',
+  };
+}
+
+function setupRichMenuTriggerApi(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    // ลบ trigger เก่าก่อน
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === 'syncRichMenusBatch') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('syncRichMenusBatch').timeBased().everyMinutes(10).create();
+    // reset cursor แล้วรันทันที
+    PropertiesService.getScriptProperties().setProperty('rmSyncCursor', '0');
+    syncRichMenusBatch();
+    return { success: true, message: 'ติดตั้ง Rich Menu Sync Trigger ทุก 10 นาทีแล้ว' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function removeRichMenuTriggerApi(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === 'syncRichMenusBatch') ScriptApp.deleteTrigger(t);
+    });
+    return { success: true, message: 'ลบ Rich Menu Sync Trigger แล้ว' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ติดตั้ง Time-driven Trigger ทุก 10 นาที
+// ** รันฟังก์ชันนี้ครั้งเดียวจาก Apps Script Editor หรือเรียกผ่าน Admin UI **
 function setupHourlyTrigger() {
-  deleteAllTriggers(); // ลบเก่าก่อนป้องกัน duplicate
+  // ลบ trigger เก่าของ syncAllLineProfilesScheduled ก่อน
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'syncAllLineProfilesScheduled') ScriptApp.deleteTrigger(t);
+  });
 
   ScriptApp.newTrigger('syncAllLineProfilesScheduled')
     .timeBased()
-    .everyHours(1)
+    .everyMinutes(10)
     .create();
 
   // รัน sync ทันทีหลังติดตั้ง
   syncAllLineProfilesScheduled();
 
-  console.log('✅ Hourly trigger installed & first sync done.');
+  console.log('✅ Trigger (every 10 min) installed & first sync done.');
+}
+
+// ลบเฉพาะ sync trigger (ไม่ลบ trigger อื่น)
+function removeSyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'syncAllLineProfilesScheduled') ScriptApp.deleteTrigger(t);
+  });
+  console.log('Sync trigger removed.');
 }
 
 // ลบ trigger ทั้งหมดของ script นี้
@@ -1499,14 +2491,133 @@ function getTriggerStatus(callerUserId) {
     } catch (_) { lastSyncLocal = lastSyncTime; }
   }
 
+  const hasTrigger = triggers.some(t => t.funcName === 'syncAllLineProfilesScheduled');
+
+  // แปลง profileSyncLastTime → เวลาไทย
+  let profileSyncLastTimeLocal = '(ยังไม่เคย sync)';
+  const pst = props.profileSyncLastTime || '';
+  if (pst) {
+    try {
+      profileSyncLastTimeLocal = Utilities.formatDate(new Date(pst), 'Asia/Bangkok', 'dd/MM/yyyy HH:mm:ss');
+    } catch (_) { profileSyncLastTimeLocal = pst; }
+  }
+
   return {
-    success:         true,
+    success:          true,
     triggers,
-    hasHourlyTrigger: triggers.some(t => t.funcName === 'syncAllLineProfilesScheduled'),
-    lastSyncTime:    lastSyncLocal,
-    lastSyncUpdated: props.lastSyncUpdated || '0',
-    lastSyncFailed:  props.lastSyncFailed  || '0',
+    hasHourlyTrigger: hasTrigger,
+    hasSyncTrigger:   hasTrigger,
+    lastSyncTime:     lastSyncLocal,
+    lastSyncUpdated:  props.lastSyncUpdated || '0',
+    lastSyncFailed:   props.lastSyncFailed  || '0',
+    // cursor-based stats
+    cursor:      parseInt(props.profileSyncCursor     || '0'),
+    total:       parseInt(props.profileSyncTotal      || '0'),
+    lastBatch:   parseInt(props.profileSyncLastBatch  || '0'),
+    cyclesDone:  parseInt(props.profileSyncCyclesDone || '0'),
+    updated:     parseInt(props.profileSyncUpdated    || '0'),
+    failed:      parseInt(props.profileSyncFailed     || '0'),
+    lastTime:    profileSyncLastTimeLocal,
   };
+}
+
+function checkLineToken(key) {
+  if (key !== 'EXAM2025') return { success: false, message: 'Unauthorized' };
+  // เช็ค token ด้วย /bot/info
+  const botInfo = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+    method: 'get', muteHttpExceptions: true,
+    headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN }
+  });
+  // เช็ค userId แถวแรกที่มีค่า
+  const sheet   = getSheet(SHEET_USERS);
+  const rows    = sheet.getRange(2, 1, Math.min(sheet.getLastRow() - 1, 3), 1).getValues();
+  const firstId = rows.find(r => String(r[0]).trim())?.[0] || '';
+  let userResp  = '';
+  if (firstId) {
+    const r = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + firstId, {
+      method: 'get', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + LINE_CHANNEL_TOKEN }
+    });
+    userResp = r.getContentText();
+  }
+  return {
+    success:      true,
+    botInfo:      JSON.parse(botInfo.getContentText()),
+    botStatus:    botInfo.getResponseCode(),
+    firstUserId:  firstId,
+    userApiResp:  userResp ? JSON.parse(userResp) : null,
+  };
+}
+
+function runSyncNow(key) {
+  if (key !== 'EXAM2025') return { success: false, message: 'Unauthorized' };
+  syncPictureUrls();
+  const props = PropertiesService.getScriptProperties().getProperties();
+  return {
+    success:      true,
+    updatedCount: Number(props.lastSyncUpdated || 0),
+    failedCount:  Number(props.lastSyncFailed  || 0),
+    lastSyncTime: props.lastSyncTime || '',
+  };
+}
+
+function syncPictureUrlsApi(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  syncPictureUrls();
+  const props = PropertiesService.getScriptProperties().getProperties();
+  return {
+    success:      true,
+    updatedCount: Number(props.lastSyncUpdated || 0),
+    failedCount:  Number(props.lastSyncFailed  || 0),
+    lastSyncTime: props.lastSyncTime || '',
+  };
+}
+
+function setupSyncTriggerApi(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    setupHourlyTrigger();
+    return { success: true, message: 'ติดตั้ง trigger ทุก 10 นาทีแล้ว และ sync ครั้งแรกเสร็จแล้ว' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function removeSyncTriggerApi(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    removeSyncTrigger();
+    return { success: true, message: 'ลบ trigger แล้ว' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ดึงข้อมูลของตัวเอง (สมาชิกทั่วไป ไม่ต้องเป็น admin)
+function getMyProfile(userId) {
+  if (!userId) return { success: false, message: 'ไม่พบ userId' };
+  const sheet = getSheet(SHEET_USERS);
+  if (!sheet) return { success: false, message: 'ไม่พบ Sheet' };
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() !== String(userId).trim()) continue;
+    return {
+      success:     true,
+      lineUserId:  String(rows[i][0]  || ''),
+      displayName: String(rows[i][1]  || ''),
+      status:      String(rows[i][2]  || ''),
+      fullName:    String(rows[i][3]  || ''),
+      email:       String(rows[i][4]  || ''),
+      phone:       String(rows[i][5]  || ''),
+      studentId:   String(rows[i][6]  || ''),
+      pictureUrl:  String(rows[i][7]  || ''),
+      joinDate:    formatDate(rows[i][8]),
+      role:        String(rows[i][9]  || ''),
+      department:  String(rows[i][10] || ''),
+      richMenuId:  String(rows[i][11] || ''),
+    };
+  }
+  return { success: false, message: 'ไม่พบข้อมูลสมาชิก' };
 }
 
 // ─────────────────────────────────────────
@@ -1522,4 +2633,294 @@ function formatDate(d) {
     if (isNaN(dt)) return String(d);
     return Utilities.formatDate(dt, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
   } catch (_) { return String(d); }
+}
+
+// ════════════════════════════════════════════════
+//  Courses Management
+// ════════════════════════════════════════════════
+
+function _ensureCoursesSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(SHEET_COURSES);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_COURSES);
+    sh.appendRow(['courseId', 'name', 'isOpen', 'createdAt']);
+    // default courses
+    const now = new Date();
+    sh.appendRow(['c1', 'หลักสูตร 1', true,  now]);
+    sh.appendRow(['c2', 'หลักสูตร 2', true,  now]);
+    sh.appendRow(['c3', 'หลักสูตร 3', true,  now]);
+  }
+  return sh;
+}
+
+// getCourses — publicOnly=true: เฉพาะที่เปิด, false: ทั้งหมด (admin)
+function getCourses(params) {
+  const { userId } = params || {};
+  const adminOnly = !!userId && isAdmin(userId);
+
+  // CacheService 5 min (public courses ไม่ค่อยเปลี่ยน)
+  if (!adminOnly) {
+    const cache    = CacheService.getScriptCache();
+    const cached   = cache.get('courses_public');
+    if (cached) { try { return JSON.parse(cached); } catch (_) {} }
+    const sh   = _ensureCoursesSheet();
+    const rows = sh.getDataRange().getValues().slice(1);
+    const courses = rows
+      .filter(r => String(r[0]).trim())
+      .map(r => ({
+        courseId: String(r[0] || ''),
+        name:     String(r[1] || ''),
+        isOpen:   r[2] === true || String(r[2]).toLowerCase() === 'true',
+        createdAt: r[3] ? formatDate(r[3]) : '',
+      }))
+      .filter(c => c.isOpen);
+    const result = { success: true, courses };
+    try { cache.put('courses_public', JSON.stringify(result), 300); } catch (_) {}
+    return result;
+  }
+
+  const sh   = _ensureCoursesSheet();
+  const rows = sh.getDataRange().getValues().slice(1);
+  const courses = rows
+    .filter(r => String(r[0]).trim())
+    .map(r => ({
+      courseId: String(r[0] || ''),
+      name:     String(r[1] || ''),
+      isOpen:   r[2] === true || String(r[2]).toLowerCase() === 'true',
+      createdAt: r[3] ? formatDate(r[3]) : '',
+    }));
+  return { success: true, courses };
+}
+
+function addCourse(body) {
+  const { callerUserId, name } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!name || !String(name).trim()) return { success: false, message: 'กรุณากรอกชื่อหลักสูตร' };
+  const sh  = _ensureCoursesSheet();
+  const id  = 'c' + Date.now();
+  sh.appendRow([id, String(name).trim(), true, new Date()]);
+  try { CacheService.getScriptCache().remove('courses_public'); } catch (_) {}
+  return { success: true, courseId: id };
+}
+
+function updateCourse(body) {
+  const { callerUserId, courseId, name } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!courseId) return { success: false, message: 'ไม่พบ courseId' };
+  const sh   = _ensureCoursesSheet();
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(courseId).trim()) {
+      if (name !== undefined) sh.getRange(i + 1, 2).setValue(String(name).trim());
+      try { CacheService.getScriptCache().remove('courses_public'); } catch (_) {}
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบหลักสูตร' };
+}
+
+function toggleCourse(body) {
+  const { callerUserId, courseId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!courseId) return { success: false, message: 'ไม่พบ courseId' };
+  const sh   = _ensureCoursesSheet();
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(courseId).trim()) {
+      const cur = rows[i][2] === true || String(rows[i][2]).toLowerCase() === 'true';
+      sh.getRange(i + 1, 3).setValue(!cur);
+      try { CacheService.getScriptCache().remove('courses_public'); } catch (_) {}
+      return { success: true, isOpen: !cur };
+    }
+  }
+  return { success: false, message: 'ไม่พบหลักสูตร' };
+}
+
+function deleteCourse(body) {
+  const { callerUserId, courseId } = body || {};
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  if (!courseId) return { success: false, message: 'ไม่พบ courseId' };
+  const sh   = _ensureCoursesSheet();
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(courseId).trim()) {
+      sh.deleteRow(i + 1);
+      try { CacheService.getScriptCache().remove('courses_public'); } catch (_) {}
+      return { success: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบหลักสูตร' };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LAYER 1: PRE-AGGREGATED STATS
+//  อัพเดตทุกครั้งที่มีการส่งข้อสอบ — ลด admin stats O(n) → O(1)
+// ══════════════════════════════════════════════════════════════
+
+// สร้าง sheet ถ้ายังไม่มี + คืน sheet object
+function _ensureSheet(name, headers) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh   = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.appendRow(headers);
+    sh.setFrozenRows(1);
+    const hdr = sh.getRange(1, 1, 1, headers.length);
+    hdr.setFontWeight('bold');
+    hdr.setBackground('#374151');
+    hdr.setFontColor('#ffffff');
+  }
+  return sh;
+}
+
+// อัพเดต _SummaryStats: userId | displayName | totalAttempts | totalPass | bestScore | lastAttempt | avgScore
+function _updateSummaryStats(userId, displayName, pct, isPass) {
+  const sh   = _ensureSheet(SHEET_SUMMARY, ['userId','displayName','totalAttempts','totalPass','bestScore','lastAttempt','avgScore']);
+  const data = sh.getDataRange().getValues();
+  let rowIdx = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(userId).trim()) { rowIdx = i; break; }
+  }
+  if (rowIdx === -1) {
+    sh.appendRow([userId, displayName || '', 1, isPass ? 1 : 0, pct, new Date(), pct]);
+  } else {
+    var r        = data[rowIdx];
+    var attempts = (Number(r[2]) || 0) + 1;
+    var passes   = (Number(r[3]) || 0) + (isPass ? 1 : 0);
+    var best     = Math.max(Number(r[4]) || 0, pct);
+    var avg      = Math.round(((Number(r[6]) || 0) * (Number(r[2]) || 0) + pct) / attempts);
+    sh.getRange(rowIdx + 1, 2, 1, 6).setValues([[displayName || r[1] || '', attempts, passes, best, new Date(), avg]]);
+  }
+}
+
+// อัพเดต _DailyStats: date | attempts | pass | fail
+function _updateDailyStat(isPass) {
+  const sh    = _ensureSheet(SHEET_DAILY, ['date','attempts','pass','fail']);
+  const today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const data  = sh.getDataRange().getValues();
+  var rowIdx  = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === today) { rowIdx = i; break; }
+  }
+  if (rowIdx === -1) {
+    sh.appendRow([today, 1, isPass ? 1 : 0, isPass ? 0 : 1]);
+  } else {
+    var r = data[rowIdx];
+    sh.getRange(rowIdx + 1, 2, 1, 3).setValues([[
+      (Number(r[1]) || 0) + 1,
+      (Number(r[2]) || 0) + (isPass ? 1 : 0),
+      (Number(r[3]) || 0) + (isPass ? 0 : 1),
+    ]]);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LAYER 3: ARCHIVE — ย้ายข้อมูลเก่า > 6 เดือน → Results_YYYY
+//  เรียกด้วยตนเอง หรือตั้ง Monthly Trigger อัตโนมัติ
+// ══════════════════════════════════════════════════════════════
+
+function _archiveOldResultsInternal() {
+  const ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_RESULTS);
+  if (!sheet || sheet.getLastRow() <= 1) return { archived: 0, kept: 0 };
+
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6); // เก็บ 6 เดือนใน active sheet
+
+  const allRows = sheet.getDataRange().getValues();
+  const header  = allRows[0];
+
+  // แบ่ง rows เป็น archive vs keep
+  const toArchive   = [];
+  const archiveIdxs = []; // row index (1-based) ที่จะลบ
+
+  for (var i = 1; i < allRows.length; i++) {
+    const rowDate = new Date(allRows[i][0]);
+    if (isNaN(rowDate) || rowDate < cutoff) {
+      toArchive.push(allRows[i]);
+      archiveIdxs.push(i + 1);
+    }
+  }
+
+  if (toArchive.length === 0) return { archived: 0, kept: sheet.getLastRow() - 1 };
+
+  // จัดกลุ่มตามปี
+  const byYear = {};
+  toArchive.forEach(function(row) {
+    const y = (new Date(row[0])).getFullYear() || new Date().getFullYear();
+    if (!byYear[y]) byYear[y] = [];
+    byYear[y].push(row);
+  });
+
+  // เขียนลง archive sheets (Results_YYYY)
+  var totalWritten = 0;
+  Object.keys(byYear).forEach(function(year) {
+    const rows        = byYear[year];
+    const archiveName = 'Results_' + year;
+    var archSheet     = ss.getSheetByName(archiveName);
+    if (!archSheet) {
+      archSheet = ss.insertSheet(archiveName);
+      archSheet.appendRow(header);
+      archSheet.setFrozenRows(1);
+      const hdr = archSheet.getRange(1, 1, 1, header.length);
+      hdr.setFontWeight('bold');
+      hdr.setBackground('#4a5568');
+      hdr.setFontColor('#ffffff');
+    }
+    const lastRow = archSheet.getLastRow();
+    archSheet.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
+    totalWritten += rows.length;
+  });
+
+  // ลบแถวเก่าออกจาก active sheet (จากล่างขึ้นบนเพื่อไม่ให้ index เลื่อน)
+  for (var j = archiveIdxs.length - 1; j >= 0; j--) {
+    sheet.deleteRow(archiveIdxs[j]);
+  }
+
+  // บันทึกเวลา archive ล่าสุด
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('lastArchiveTime',  new Date().toISOString());
+    props.setProperty('lastArchiveCount', String(totalWritten));
+  } catch (_) {}
+
+  // Clear stats cache
+  try { CacheService.getScriptCache().remove('adminStats_all'); } catch (_) {}
+
+  return { archived: totalWritten, kept: sheet.getLastRow() - 1 };
+}
+
+function archiveOldResults(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  try {
+    const r = _archiveOldResultsInternal();
+    return { success: true, archived: r.archived, kept: r.kept };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// Scheduled trigger handler (รันโดย Time-based Trigger ทุกวันที่ 1)
+function archiveOldResultsScheduled() {
+  try { _archiveOldResultsInternal(); } catch (_) {}
+}
+
+function setupArchiveTrigger(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  ScriptApp.getProjectTriggers()
+    .filter(function(t) { return t.getHandlerFunction() === 'archiveOldResultsScheduled'; })
+    .forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('archiveOldResultsScheduled')
+    .timeBased().onMonthDay(1).atHour(2).create();
+  return { success: true, message: 'ตั้ง Archive Trigger สำเร็จ (รันทุกวันที่ 1 เวลา 02:00 น.)' };
+}
+
+function removeArchiveTrigger(callerUserId) {
+  if (!isAdmin(callerUserId)) return { success: false, message: 'ไม่มีสิทธิ์' };
+  var removed = 0;
+  ScriptApp.getProjectTriggers()
+    .filter(function(t) { return t.getHandlerFunction() === 'archiveOldResultsScheduled'; })
+    .forEach(function(t) { ScriptApp.deleteTrigger(t); removed++; });
+  return { success: true, removed: removed };
 }

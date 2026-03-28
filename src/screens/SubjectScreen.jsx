@@ -53,6 +53,19 @@ export default function SubjectScreen() {
     }
   }
 
+  async function studySubject(name) {
+    navigate('loading-quiz');
+    try {
+      const data = await apiGetCached('getQuestions', { lesson: name }, Q_CACHE_TTL);
+      if (!Array.isArray(data) || !data.length) throw new Error('ไม่พบข้อสอบในวิชานี้');
+      setExam(prev => ({ ...prev, lesson: name, allQ: data }));
+      navigate('study');
+    } catch (e) {
+      await Swal.fire('เกิดข้อผิดพลาด', e.message || 'โหลดข้อสอบไม่สำเร็จ', 'error');
+      navigate('subject');
+    }
+  }
+
   if (loading) return <Spinner label="กำลังโหลดรายวิชา..." />;
 
   return (
@@ -73,13 +86,21 @@ export default function SubjectScreen() {
             onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
             onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--input-border)'; e.currentTarget.style.transform = ''; }}
           >
-            <div className="font-semibold mb-2" style={{ color: 'var(--text)' }}>{s.name}</div>
-            <button
-              className="btn btn-primary text-sm rounded-lg px-4 py-2 w-full"
-              onClick={() => pickSubject(s.name)}
-            >
-              ทำข้อสอบ
-            </button>
+            <div className="font-semibold mb-3 text-sm" style={{ color: 'var(--text)' }}>{s.name}</div>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-primary text-sm rounded-lg px-3 py-2 flex-1"
+                onClick={() => pickSubject(s.name)}
+              >
+                ✏️ สอบ
+              </button>
+              <button
+                className="btn btn-gray text-sm rounded-lg px-3 py-2 flex-1"
+                onClick={() => studySubject(s.name)}
+              >
+                📖 ทบทวน
+              </button>
+            </div>
           </div>
         ))}
       </div>
