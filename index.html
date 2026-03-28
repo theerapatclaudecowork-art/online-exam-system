@@ -4,13 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ระบบข้อสอบออนไลน์</title>
+  <meta name="theme-color" content="#4f46e5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="ข้อสอบ" />
+  <link rel="manifest" href="/online-exam-system/manifest.json" />
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
-  <script type="module" crossorigin src="/online-exam-system/assets/index-B4oyNZFo.js"></script>
-  <link rel="stylesheet" crossorigin href="/online-exam-system/assets/index-DVvWpc6I.css">
+  <script type="module" crossorigin src="/online-exam-system/assets/index-Cafp_IPs.js"></script>
+  <link rel="stylesheet" crossorigin href="/online-exam-system/assets/index-Yk-nJgBD.css">
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/online-exam-system/sw.js')
+          .catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
