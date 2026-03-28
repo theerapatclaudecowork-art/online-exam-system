@@ -1145,7 +1145,7 @@ function AdminScreenInner() {
   const TABS = [
     { key: 'stats',      label: '📊 สถิติ' },
     { key: 'members',    label: '👥 สมาชิก' },
-    { key: 'dept',       label: '🏢 แผนก' },
+    { key: 'dept',       label: '🏢 หน่วยงาน' },
     { key: 'richmenu',   label: '🎛 Rich Menu' },
     { key: 'results',    label: '📋 ผลสอบ' },
     { key: 'courses',    label: '📚 หลักสูตร' },
@@ -1991,7 +1991,7 @@ function AdminScreenInner() {
         const [deptFilter,setDeptFilter]= useState('');
         const [newDeptName,setNewDeptName]= useState('');
 
-        useState(() => {
+        useEffect(() => {
           apiGet('getDepartments', { userId: profile.userId })
             .then(d => { if (d.success) setDeptData(d); })
             .catch(() => {})
@@ -2027,7 +2027,7 @@ function AdminScreenInner() {
           <div className="animate-fade space-y-4">
             {/* Department Summary */}
             <div className="quiz-card no-hover rounded-2xl p-4">
-              <h3 className="font-bold text-sm mb-3" style={{ color:'var(--text)' }}>🏢 สรุปแผนก / กลุ่ม</h3>
+              <h3 className="font-bold text-sm mb-3" style={{ color:'var(--text)' }}>🏢 สรุปหน่วยงาน / กลุ่ม</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {depts.map(d => (
                   <button key={d.name}
@@ -2045,7 +2045,7 @@ function AdminScreenInner() {
               </div>
               {deptFilter && (
                 <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 mt-3 w-full"
-                  onClick={() => setDeptFilter('')}>✕ ดูทุกแผนก</button>
+                  onClick={() => setDeptFilter('')}>✕ ดูทุกหน่วยงาน</button>
               )}
             </div>
 
@@ -2053,7 +2053,7 @@ function AdminScreenInner() {
             <div className="quiz-card no-hover rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-sm" style={{ color:'var(--text)' }}>
-                  👤 สมาชิก {deptFilter ? `— ${deptFilter}` : 'ทั้งหมด'}
+                  👤 สมาชิก {deptFilter ? `— ${deptFilter}` : 'ทุกหน่วยงาน'}
                   <span className="ml-2 text-xs font-normal" style={{ color:'var(--text-muted)' }}>({filtered.length} คน)</span>
                 </h3>
               </div>
@@ -2071,7 +2071,8 @@ function AdminScreenInner() {
                       </div>
                       {editId === m.lineUserId ? (
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <input list="dept-list" className="themed-input text-xs" style={{ width:120 }}
+                          <input list="dept-list" className="themed-input text-xs" style={{ width:130 }}
+                            placeholder="ชื่อหน่วยงาน..."
                             value={editDept} onChange={e => setEditDept(e.target.value)} />
                           <datalist id="dept-list">{depts.map(d=><option key={d.name} value={d.name}/>)}</datalist>
                           <button className="btn btn-primary text-xs rounded-lg px-2 py-1"
