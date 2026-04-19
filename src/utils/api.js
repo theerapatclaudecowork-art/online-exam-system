@@ -1,5 +1,63 @@
 import { GAS_URL } from '../config';
 
+// Expose GAS_URL globally สำหรับ ErrorBoundary sendBeacon fallback
+try { if (typeof window !== 'undefined') window.GAS_URL = GAS_URL; } catch (_) {}
+
+// ─────────────────────────────────────────────────────────────
+//  Client Token Generator — สำหรับ idempotency ใน saveResult
+// ─────────────────────────────────────────────────────────────
+export function genClientToken() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch (_) {}
+  return 'ct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Global Error Reporter — for unhandled window errors
+// ─────────────────────────────────────────────────────────────
+let _errorReportThrottle = 0;
+export function reportError(message, opts = {}) {
+  const now = Date.now();
+  if (now - _errorReportThrottle < 2000) return; // กัน spam 2s
+  _errorReportThrottle = now;
+  try {
+    apiPost({
+      action:  'logError',
+      severity: opts.severity || 'error',
+      message:  String(message || '').slice(0, 500),
+      stack:    String(opts.stack || '').slice(0, 2000),
+      context:  String(opts.context || '').slice(0, 500),
+      screen:   opts.screen || (typeof window !== 'undefined' ? window.location.hash : ''),
+      userId:   opts.userId || (() => {
+        try { const p = JSON.parse(localStorage.getItem('profile') || '{}'); return p.userId || p.lineUserId || ''; }
+        catch (_) { return ''; }
+      })(),
+      ua: (typeof navigator !== 'undefined') ? String(navigator.userAgent).slice(0, 200) : '',
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+// ติดตั้ง global handlers ครั้งเดียว
+try {
+  if (typeof window !== 'undefined' && !window.__errorHandlersInstalled) {
+    window.__errorHandlersInstalled = true;
+    window.addEventListener('error', (e) => {
+      try { reportError(e.message || 'window error', { stack: e.error && e.error.stack, context: (e.filename || '') + ':' + (e.lineno || '') }); } catch (_) {}
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      try {
+        const reason = e.reason;
+        reportError(
+          (reason && reason.message) || String(reason || 'unhandled promise rejection'),
+          { stack: reason && reason.stack, context: 'unhandledrejection' }
+        );
+      } catch (_) {}
+    });
+  }
+} catch (_) {}
+
+
 // ─────────────────────────────────────────────────────────────
 //  localStorage cache helpers
 // ─────────────────────────────────────────────────────────────

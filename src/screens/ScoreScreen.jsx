@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
-import { apiPost, apiPostQueued, syncOfflineQueue, getOfflineQueueCount } from '../utils/api';
+import { apiPost, apiPostQueued, syncOfflineQueue, getOfflineQueueCount, genClientToken } from '../utils/api';
 import { PASS_THRESHOLD, LIFF_ID, APP_LOGO } from '../config';
 
 const CIRCUMFERENCE = 251.2;
@@ -267,10 +267,15 @@ export default function ScoreScreen() {
     if (savedRef.current) return;
     savedRef.current = true;
 
+    // Idempotency token — กันกรณี React StrictMode / auto-retry / กด submit 2 ครั้ง
+    // ใช้ token เดียวกันระหว่าง online save + offline queue → server dedupe
+    const clientToken = genClientToken();
+
     (async () => {
       try {
         const data = await apiPost({
           action:      'saveResult',
+          clientToken: clientToken,
           userId:      profile?.userId      || '',
           displayName: profile?.displayName || '',
           email:       lineEmail            || '',
@@ -341,9 +346,10 @@ export default function ScoreScreen() {
         setVerifying(false);
         setVerifyError('ไม่สามารถเชื่อมต่อ server ได้ — ผลสอบจะส่งเมื่อออนไลน์');
 
-        // queue for later
+        // queue for later — ใช้ clientToken เดียวกันเพื่อ dedupe กับรอบแรก
         apiPostQueued({
           action:      'saveResult',
+          clientToken: clientToken,
           userId:      profile?.userId      || '',
           displayName: profile?.displayName || '',
           email:       lineEmail            || '',

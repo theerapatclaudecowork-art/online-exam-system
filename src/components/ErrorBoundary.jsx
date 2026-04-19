@@ -20,9 +20,39 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     this.setState({ info });
-    // log ลง console + อนาคต อาจส่งไป GAS ผ่าน apiPost({action:'logError'})
     try {
       console.error('[ErrorBoundary]', error, info?.componentStack);
+    } catch (_) {}
+
+    // ── Report error to GAS backend ──
+    try {
+      const payload = {
+        action: 'logError',
+        severity: 'error',
+        message: (error && error.message) ? String(error.message) : String(error || ''),
+        stack:   (error && error.stack)   ? String(error.stack).slice(0, 2000) : '',
+        context: (info && info.componentStack) ? String(info.componentStack).slice(0, 2000) : '',
+        screen:  (typeof window !== 'undefined' && window.location) ? window.location.hash || window.location.pathname : '',
+        userId:  (() => {
+          try {
+            const p = JSON.parse(localStorage.getItem('profile') || '{}');
+            return p.userId || p.lineUserId || '';
+          } catch (_) { return ''; }
+        })(),
+        ua: (typeof navigator !== 'undefined') ? String(navigator.userAgent).slice(0, 200) : '',
+      };
+      // ใช้ dynamic import เพื่อไม่ให้ ErrorBoundary ล้มเหลวถ้า api.js ล้มเหลวเอง
+      import('../utils/api').then(m => {
+        try { m.apiPost(payload).catch(() => {}); } catch (_) {}
+      }).catch(() => {
+        // fallback: sendBeacon
+        try {
+          const url = (window.GAS_URL || '');
+          if (url && navigator.sendBeacon) {
+            navigator.sendBeacon(url, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+          }
+        } catch (_) {}
+      });
     } catch (_) {}
   }
 
