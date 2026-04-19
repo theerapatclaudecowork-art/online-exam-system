@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiGet } from '../utils/api';
 import Spinner from '../components/Spinner';
+import { FALLBACK_AVATAR } from '../config';
 
 const MEDAL = ['🥇','🥈','🥉'];
 
@@ -34,8 +35,33 @@ export default function MyStatsScreen() {
 
   const s  = data?.summary || {};
   const ss = data?.subjectStats || [];
+  const wq = data?.weakQuestions || [];
   const weak = ss.filter(x => x.passRate < 60);
   const good = ss.filter(x => x.passRate >= 80);
+
+  // Empty state — ยังไม่มีข้อมูล
+  if (!data || !s.totalAttempts) {
+    return (
+      <div className="animate-fade space-y-4">
+        <div className="quiz-card no-hover rounded-2xl p-4">
+          <div className="flex items-center justify-between">
+            <h1 className="font-bold text-base sm:text-lg" style={{ color: 'var(--text)' }}>📊 สถิติของฉัน</h1>
+            <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
+          </div>
+        </div>
+        <div className="quiz-card no-hover rounded-2xl p-10 text-center">
+          <div className="text-4xl mb-3">📭</div>
+          <div className="font-bold text-sm mb-1" style={{ color: 'var(--text)' }}>ยังไม่มีข้อมูลสถิติ</div>
+          <div className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>ไปทำข้อสอบสักชุดแล้วกลับมาดูสถิติกันเถอะ!</div>
+          <button className="btn rounded-xl py-2.5 px-6 text-sm font-semibold"
+            style={{ background: 'var(--accent)', color: 'white' }}
+            onClick={() => navigate('examSets')}>
+            📝 ไปทำข้อสอบ
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade space-y-4">
@@ -48,7 +74,7 @@ export default function MyStatsScreen() {
             onClick={() => navigate('setup')}>← กลับ</button>
         </div>
         <div className="flex items-center gap-2 mt-1">
-          <img src={profile?.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
+          <img src={profile?.pictureUrl || FALLBACK_AVATAR}
             alt="" className="w-8 h-8 rounded-full object-cover" />
           <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{profile?.displayName}</span>
           {s.rank && (
@@ -167,6 +193,57 @@ export default function MyStatsScreen() {
           <button className="btn btn-gray w-full rounded-xl py-2 text-sm mt-3"
             onClick={() => navigate('subject')}>
             📚 ไปทบทวน →
+          </button>
+        </div>
+      )}
+
+      {/* #4 วิเคราะห์จุดอ่อน — ข้อที่ผิดบ่อย */}
+      {wq.length > 0 && (
+        <div className="quiz-card no-hover rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xl">🔍</span>
+            <span className="font-bold text-sm" style={{ color: '#dc2626' }}>ข้อที่ผิดบ่อย</span>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#fee2e2', color: '#b91c1c' }}>
+              Top {wq.length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {wq.map((q, i) => (
+              <div key={i} className="rounded-xl p-3"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="flex items-start gap-2 mb-1">
+                  <span className="flex-shrink-0 text-xs font-black px-2 py-0.5 rounded-full"
+                    style={{ background: '#fee2e2', color: '#dc2626', minWidth: 24, textAlign: 'center' }}>
+                    {q.wrongCount}x
+                  </span>
+                  <div className="text-xs font-medium flex-1" style={{
+                    color: 'var(--text)', lineHeight: 1.4,
+                    overflow: 'hidden', textOverflow: 'ellipsis',
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                  }}>
+                    {q.question}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: '#fff7ed', color: '#9a3412', fontSize: 10 }}>
+                    {q.subject}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    ผิด {q.wrongRate}% ({q.wrongCount}/{q.totalSeen})
+                  </span>
+                  <div className="flex-1" />
+                  <div style={{ width: 48, background: 'var(--progress-trk)', borderRadius: 999, height: 4, overflow: 'hidden' }}>
+                    <div style={{ width: `${q.wrongRate}%`, height: '100%', background: '#ef4444', borderRadius: 999 }}/>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className="btn w-full rounded-xl py-2 text-sm mt-3"
+            style={{ background: '#ef4444', color: 'white' }}
+            onClick={() => navigate('drill')}>
+            🎯 ฝึกข้อที่ผิดบ่อย (Spaced Repetition)
           </button>
         </div>
       )}

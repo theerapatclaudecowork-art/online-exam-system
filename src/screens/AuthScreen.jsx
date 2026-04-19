@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import { LIFF_ID, GAS_URL, DEV_PREVIEW, DEV_PROFILE } from '../config';
+import { LIFF_ID, GAS_URL, DEV_PREVIEW, DEV_PROFILE, APP_LOGO } from '../config';
 import { useApp } from '../context/AppContext';
 import { apiGet, lsGet, lsSet, lsDel } from '../utils/api';
 
@@ -8,7 +8,7 @@ const USER_CACHE_KEY = 'exam_init';
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5 นาที
 
 export default function AuthScreen() {
-  const { navigate, setProfile, setLineEmail, setIsAdmin, setSubjects } = useApp();
+  const { navigate, setProfile, setLineEmail, setIsAdmin, setIsTeacher, setSubjects, setQuestionBank, setUserCourse } = useApp();
   const [msg, setMsg] = useState('กำลังเชื่อมต่อ LINE...');
 
   useEffect(() => {
@@ -48,6 +48,9 @@ export default function AuthScreen() {
           // ใช้ข้อมูล cache ได้เลย
           if (cached.subjects?.length) setSubjects(cached.subjects);
           if (cached.role === 'admin') setIsAdmin(true);
+          if (cached.role === 'teacher') setIsTeacher(true);
+          if (cached.questionBank) setQuestionBank(cached.questionBank);
+          if (cached.course) setUserCourse(cached.course);
           _navigate(cached, navigate);
           return;
         }
@@ -60,6 +63,10 @@ export default function AuthScreen() {
           navigate('register');
           return;
         }
+        if (data.status === 'pending') {
+          navigate('pending');
+          return;
+        }
         if (!data.success) {
           setMsg('ไม่มีสิทธิ์เข้าใช้งาน');
           Swal.fire({ icon: 'error', title: 'ไม่มีสิทธิ์เข้าใช้งาน', text: data.message || 'ติดต่อผู้ดูแลระบบ', allowOutsideClick: false });
@@ -69,6 +76,9 @@ export default function AuthScreen() {
         // บันทึก subjects เข้า Context ทันที (SubjectScreen ไม่ต้อง fetch อีก)
         if (data.subjects?.length) setSubjects(data.subjects);
         if (data.role === 'admin') setIsAdmin(true);
+        if (data.role === 'teacher') setIsTeacher(true);
+        if (data.questionBank) setQuestionBank(data.questionBank);
+        if (data.course) setUserCourse(data.course);
 
         // cache ผลไว้ 5 นาที
         lsSet(USER_CACHE_KEY + '_' + profile.userId, data);
@@ -92,6 +102,7 @@ export default function AuthScreen() {
 
   return (
     <div className="quiz-card no-hover rounded-2xl p-10 text-center animate-fade">
+      <img src={APP_LOGO} alt="logo" style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 16px', display: 'block', boxShadow: '0 4px 16px rgba(0,0,0,.12)' }} />
       <div className="spinner" />
       <p style={{ color: 'var(--text-muted)' }}>{msg}</p>
     </div>
@@ -102,7 +113,11 @@ export default function AuthScreen() {
 function _navigate(data, navigate) {
   const urlParams = new URLSearchParams(window.location.search);
   const goPage    = urlParams.get('page');
-  if (goPage === 'history') {
+  if (data.role === 'admin') {
+    navigate('admin');
+  } else if (data.role === 'teacher') {
+    navigate('teacher');
+  } else if (goPage === 'history') {
     navigate('history');
   } else {
     navigate('setup');

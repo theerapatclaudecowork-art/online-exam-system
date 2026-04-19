@@ -5,11 +5,13 @@ const AppContext = createContext(null);
 export function AppProvider({ children }) {
   // ── Navigation ──
   const [screen, setScreen] = useState('auth');
+  const [screenParams, setScreenParams] = useState(null);
 
   // ── User ──
   const [profile, setProfile]   = useState(null); // LINE profile
   const [lineEmail, setLineEmail] = useState(null);
   const [isAdmin, setIsAdmin]   = useState(false);
+  const [isTeacher, setIsTeacher] = useState(false);
 
   // ── Theme ──
   const [theme, setThemeState] = useState(() => localStorage.getItem('quiz-theme') || '');
@@ -47,6 +49,9 @@ export function AppProvider({ children }) {
   // ── Prefetched subjects (เก็บจาก initApp เพื่อไม่ต้อง fetch ซ้ำ) ──
   const [subjects, setSubjects] = useState([]);
 
+  // ── User Course (หลักสูตรที่ user ลงทะเบียน) ──
+  const [userCourse, setUserCourse] = useState('');
+
   // ── History ──
   const [historyList, setHistoryList]     = useState([]);
   const [historyDetail, setHistoryDetail] = useState(null); // { exam, detail }
@@ -54,21 +59,30 @@ export function AppProvider({ children }) {
   // ── Bookmarks ──
   const [bookmarks, setBookmarks] = useState(null); // null = not loaded yet
 
-  const navigate = useCallback((scr) => setScreen(scr), []);
+  // ── Question Bank Schedule ──
+  const [questionBank, setQuestionBank] = useState(null);
+
+  const navigate = useCallback((scr, params) => {
+    setScreenParams(params || null);
+    setScreen(scr);
+  }, []);
 
   return (
     <AppContext.Provider value={{
-      screen, navigate,
+      screen, navigate, screenParams,
       profile, setProfile,
       lineEmail, setLineEmail,
       isAdmin, setIsAdmin,
+      isTeacher, setIsTeacher,
       theme, setTheme,
       settings, setSettings,
       exam, setExam,
       subjects, setSubjects,
+      userCourse, setUserCourse,
       historyList, setHistoryList,
       historyDetail, setHistoryDetail,
       bookmarks, setBookmarks,
+      questionBank, setQuestionBank,
     }}>
       {children}
     </AppContext.Provider>

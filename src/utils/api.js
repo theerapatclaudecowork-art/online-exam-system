@@ -42,12 +42,12 @@ export async function apiGet(action, params = {}) {
   return res.json();
 }
 
-export async function apiPost(body) {
+export async function apiPost(body, ms) {
   const res = await fetchWithTimeout(GAS_URL, {
     method:  'POST',
     headers: { 'Content-Type': 'text/plain' },
     body:    JSON.stringify(body),
-  });
+  }, ms);
   return res.json();
 }
 
@@ -84,4 +84,62 @@ export function lsInvalidate(actionPrefix) {
       .filter(k => k.startsWith(prefix))
       .forEach(k => localStorage.removeItem(k));
   } catch (_) {}
+}
+
+// ─────────────────────────────────────────────────────────────
+//  #9 Offline queue — เก็บ POST ที่ล้มเหลว แล้ว sync ภายหลัง
+// ─────────────────────────────────────────────────────────────
+const OFFLINE_QUEUE_KEY = 'offline_post_queue';
+
+function _getQueue() {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); } catch (_) { return []; }
+}
+
+function _saveQueue(q) {
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); } catch (_) {}
+}
+
+export function getOfflineQueueCount() {
+  return _getQueue().length;
+}
+
+/** POST ที่ offline-safe: ถ้าไม่มีเน็ต จะเก็บลง queue แล้วคืน { success: true, queued: true } */
+export async function apiPostQueued(body) {
+  try {
+    const res = await fetchWithTimeout(GAS_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body:    JSON.stringify(body),
+    });
+    return res.json();
+  } catch (_) {
+    const q = _getQueue();
+    q.push({ ...body, _queuedAt: Date.now() });
+    _saveQueue(q);
+    return { success: true, queued: true };
+  }
+}
+
+/** Sync queued items เมื่อกลับมาออนไลน์ — คืนจำนวนรายการที่ sync สำเร็จ */
+export async function syncOfflineQueue() {
+  const q = _getQueue();
+  if (!q.length) return 0;
+  const remaining = [];
+  let synced = 0;
+  for (const item of q) {
+    try {
+      const res  = await fetchWithTimeout(GAS_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body:    JSON.stringify(item),
+      });
+      const data = await res.json();
+      if (data && data.success !== false) synced++;
+      else remaining.push(item);
+    } catch (_) {
+      remaining.push(item);
+    }
+  }
+  _saveQueue(remaining);
+  return synced;
 }

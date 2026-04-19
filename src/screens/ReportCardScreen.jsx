@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiGet } from '../utils/api';
 import Spinner from '../components/Spinner';
+import { FALLBACK_AVATAR } from '../config';
 
 export default function ReportCardScreen() {
   const { navigate, profile } = useApp();
@@ -57,7 +58,7 @@ export default function ReportCardScreen() {
         {/* Header */}
         <div style={{ background:'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', padding:'28px 28px 20px', color:'white' }}>
           <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:16 }}>
-            <img src={profile.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
+            <img src={profile.pictureUrl || FALLBACK_AVATAR}
               style={{ width:64, height:64, borderRadius:'50%', border:'3px solid rgba(255,255,255,.5)', objectFit:'cover' }} alt="" />
             <div>
               <div style={{ fontSize:22, fontWeight:900 }}>{p.fullName || profile.displayName}</div>

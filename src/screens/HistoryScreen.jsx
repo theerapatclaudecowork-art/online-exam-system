@@ -14,6 +14,7 @@ export default function HistoryScreen() {
   const [loading,     setLoading]     = useState(!historyList.length);
   const [loadingMore, setLoadingMore] = useState(false);
   const [filter,      setFilter]      = useState('');
+  const [passFilter,  setPassFilter]  = useState('');   // '' | 'ผ่าน' | 'ไม่ผ่าน'
   const [page,        setPage]        = useState(1);
   const [hasMore,     setHasMore]     = useState(false);
   const [total,       setTotal]       = useState(0);
@@ -27,7 +28,7 @@ export default function HistoryScreen() {
   async function load(p = 1, reset = false) {
     if (p === 1) setLoading(true); else setLoadingMore(true);
     try {
-      const data = await apiGet('getHistory', { userId: profile.userId, page: p, size: PAGE_SIZE });
+      const data = await apiGet('getHistory', { userId: profile.userId, callerUserId: profile.userId, page: p, size: PAGE_SIZE });
       if (!data.success) throw new Error(data.message || 'โหลดประวัติไม่สำเร็จ');
 
       const newList = reset
@@ -66,7 +67,7 @@ export default function HistoryScreen() {
 
   async function openDetail(examId) {
     try {
-      const data = await apiGet('getHistoryDetail', { examId });
+      const data = await apiGet('getHistoryDetail', { examId, userId: profile?.userId });
       if (!data.success) throw new Error(data.message || 'โหลดรายละเอียดไม่สำเร็จ');
       setHistoryDetail({ exam: data.exam, detail: data.detail || [] });
       navigate('historyDetail');
@@ -76,8 +77,6 @@ export default function HistoryScreen() {
   }
 
   if (loading) return <Spinner label="กำลังโหลดประวัติ..." />;
-
-  const [passFilter, setPassFilter] = useState(''); // '' | 'ผ่าน' | 'ไม่ผ่าน'
 
   const subjects = [...new Set(historyList.map(h => h.lesson).filter(Boolean))];
   const filtered = historyList

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
-import { apiPost } from '../utils/api';
-import { PASS_THRESHOLD, LIFF_ID } from '../config';
+import { apiPost, apiPostQueued, syncOfflineQueue, getOfflineQueueCount } from '../utils/api';
+import { PASS_THRESHOLD, LIFF_ID, APP_LOGO } from '../config';
 
 const CIRCUMFERENCE = 251.2;
 
@@ -19,7 +20,8 @@ function trunc(str, n = 60) {
 
 // ─── Footer ปุ่มร่วม ────────────────────────────────────────────
 function buildFooter(liffId) {
-  const base = liffId ? `https://liff.line.me/${liffId}` : '#';
+  if (!liffId) return undefined; // ไม่มี LIFF ID → ไม่แสดง footer
+  const base = `https://liff.line.me/${liffId}`;
   return {
     type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'sm',
     contents: [
@@ -29,11 +31,11 @@ function buildFooter(liffId) {
           {
             type: 'button', style: 'primary', height: 'sm', flex: 1,
             color: '#4f46e5',
-            action: { type: 'uri', label: '📋 ประวัติสอบ', uri: `${base}?page=history` },
+            action: { type: 'uri', label: 'ประวัติสอบ', uri: `${base}?page=history` },
           },
           {
             type: 'button', style: 'secondary', height: 'sm', flex: 1,
-            action: { type: 'uri', label: '🔄 สอบอีกครั้ง', uri: `${base}?page=quiz` },
+            action: { type: 'uri', label: 'สอบอีกครั้ง', uri: `${base}?page=quiz` },
           },
         ],
       },
@@ -42,89 +44,94 @@ function buildFooter(liffId) {
 }
 
 // ─── Bubble 1: สรุปคะแนน ───────────────────────────────────────
-function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount, liffId }) {
+function buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount, liffId, attemptCount }) {
   const isPass     = pass;
   const headerBg   = isPass ? '#16a34a' : '#dc2626';
   const passColor  = isPass ? '#16a34a' : '#dc2626';
   const passText   = isPass ? '✅ ผ่านการสอบ' : '❌ ไม่ผ่านการสอบ';
   const rightCount = total - wrongCount;
 
-  return {
+  const footer = buildFooter(liffId);
+  const bubble = {
     type: 'bubble', size: 'kilo',
     header: {
       type: 'box', layout: 'vertical', backgroundColor: headerBg, paddingAll: '16px',
       contents: [
-        { type: 'text', text: '📝 ผลการสอบ', color: '#ffffffcc', size: 'xs' },
-        { type: 'text', text: trunc(lesson, 50), color: '#ffffff', weight: 'bold', size: 'lg', wrap: true },
+        { type: 'text', text: 'ผลการสอบ', color: '#ffffffcc', size: 'xs' },
+        { type: 'text', text: trunc(lesson, 50) || 'ไม่ระบุวิชา', color: '#ffffff', weight: 'bold', size: 'lg', wrap: true },
       ],
     },
     body: {
       type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'sm',
       contents: [
-        // ผู้สอบ
         {
           type: 'box', layout: 'horizontal', spacing: 'sm',
           contents: [
-            { type: 'text', text: '👤 ผู้สอบ', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: 'ผู้สอบ', size: 'sm', color: '#888888', flex: 2 },
             { type: 'text', text: trunc(displayName || 'ไม่ระบุ', 20), size: 'sm', color: '#333333', flex: 3, align: 'end', wrap: true },
           ],
         },
-        // คะแนน
         {
           type: 'box', layout: 'horizontal', spacing: 'sm',
           contents: [
-            { type: 'text', text: '📊 คะแนน', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: `${score}/${total}  (${pct}%)`, size: 'lg', weight: 'bold', color: passColor, flex: 3, align: 'end' },
+            { type: 'text', text: 'คะแนน', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: `${score}/${total} (${pct}%)`, size: 'lg', weight: 'bold', color: passColor, flex: 3, align: 'end' },
           ],
         },
-        // ถูก/ผิด
         {
           type: 'box', layout: 'horizontal', spacing: 'sm',
           contents: [
-            { type: 'text', text: '✔ ถูก / ✖ ผิด', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: 'ถูก / ผิด', size: 'sm', color: '#888888', flex: 2 },
             { type: 'text', text: `${rightCount} / ${wrongCount} ข้อ`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
           ],
         },
-        // เวลา
         {
           type: 'box', layout: 'horizontal', spacing: 'sm',
           contents: [
-            { type: 'text', text: '⏱ เวลาที่ใช้', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: 'เวลาที่ใช้', size: 'sm', color: '#888888', flex: 2 },
             { type: 'text', text: `${min}:${sec}`, size: 'sm', color: '#333333', flex: 3, align: 'end' },
           ],
         },
+        ...(attemptCount ? [{
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: 'สอบครั้งที่', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: String(attemptCount), size: 'sm', color: '#333333', flex: 3, align: 'end' },
+          ],
+        }] : []),
         { type: 'separator', margin: 'md' },
-        // ผลสรุป
         {
           type: 'box', layout: 'vertical', margin: 'sm',
           backgroundColor: isPass ? '#f0fdf4' : '#fef2f2',
           cornerRadius: '10px', paddingAll: '10px',
           contents: [
             { type: 'text', text: passText, weight: 'bold', size: 'md', color: passColor, align: 'center' },
-            { type: 'text', text: `เกณฑ์ผ่าน 60% ขึ้นไป${wrongCount > 0 ? '  •  ปัดดูข้อผิด ›' : ''}`, size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
+            { type: 'text', text: wrongCount > 0 ? 'เกณฑ์ผ่าน 60% - ปัดดูข้อผิด' : 'เกณฑ์ผ่าน 60% ขึ้นไป', size: 'xs', color: '#888888', align: 'center', margin: 'sm' },
           ],
         },
       ],
     },
-    footer: buildFooter(liffId),
   };
+  if (footer) bubble.footer = footer;
+  return bubble;
 }
 
 // ─── Bubble 2: รายละเอียดข้อผิด ────────────────────────────────
 function buildWrongBubble(wrongItems, liffId) {
   if (wrongItems.length === 0) {
-    return {
+    const fb0 = {
       type: 'bubble', size: 'kilo',
       body: {
         type: 'box', layout: 'vertical', paddingAll: '20px', justifyContent: 'center',
         contents: [
-          { type: 'text', text: '🌟', size: 'xxl', align: 'center' },
           { type: 'text', text: 'ทำถูกทุกข้อ!', weight: 'bold', size: 'xl', align: 'center', color: '#16a34a', margin: 'md' },
           { type: 'text', text: 'ยอดเยี่ยมมาก ไม่มีข้อที่ผิดเลย', size: 'sm', color: '#888888', align: 'center', margin: 'sm' },
         ],
       },
-      footer: buildFooter(liffId),
     };
+    const ft0 = buildFooter(liffId);
+    if (ft0) fb0.footer = ft0;
+    return fb0;
   }
 
   // แสดงสูงสุด 10 ข้อ เพื่อไม่ให้ bubble ใหญ่เกิน
@@ -147,7 +154,7 @@ function buildWrongBubble(wrongItems, liffId) {
               justifyContent: 'center', alignItems: 'center',
               contents: [{ type: 'text', text: String(item.no), size: 'xs', color: '#b91c1c', weight: 'bold', align: 'center' }],
             },
-            { type: 'text', text: trunc(item.question, 55), size: 'sm', color: '#1f2937', flex: 1, wrap: true, margin: 'sm' },
+            { type: 'text', text: trunc(item.question, 55) || '-', size: 'sm', color: '#1f2937', flex: 1, wrap: true, margin: 'sm' },
           ],
         },
         // คำตอบ
@@ -159,7 +166,7 @@ function buildWrongBubble(wrongItems, liffId) {
               backgroundColor: '#fef2f2', cornerRadius: '6px',
               contents: [
                 { type: 'text', text: 'คุณตอบ', size: 'xxs', color: '#b91c1c' },
-                { type: 'text', text: trunc(item.userAnswer, 20), size: 'xs', color: '#b91c1c', weight: 'bold', wrap: true },
+                { type: 'text', text: trunc(item.userAnswer, 20) || '-', size: 'xs', color: '#b91c1c', weight: 'bold', wrap: true },
               ],
             },
             { type: 'text', text: '→', size: 'sm', color: '#9ca3af', align: 'center', flex: 0, margin: 'sm' },
@@ -168,7 +175,7 @@ function buildWrongBubble(wrongItems, liffId) {
               backgroundColor: '#f0fdf4', cornerRadius: '6px',
               contents: [
                 { type: 'text', text: 'เฉลย', size: 'xxs', color: '#15803d' },
-                { type: 'text', text: trunc(item.correctAnswer, 20), size: 'xs', color: '#15803d', weight: 'bold', wrap: true },
+                { type: 'text', text: trunc(item.correctAnswer, 20) || '-', size: 'xs', color: '#15803d', weight: 'bold', wrap: true },
               ],
             },
           ],
@@ -190,12 +197,12 @@ function buildWrongBubble(wrongItems, liffId) {
     rows.push({ type: 'text', text: `…และอีก ${moreCount} ข้อ (ดูเฉลยในแอป)`, size: 'xs', color: '#9ca3af', align: 'center', margin: 'md' });
   }
 
-  return {
+  const fb1 = {
     type: 'bubble', size: 'kilo',
     header: {
       type: 'box', layout: 'vertical', backgroundColor: '#fef2f2', paddingAll: '14px',
       contents: [
-        { type: 'text', text: `❌ ข้อที่ตอบผิด (${wrongItems.length} ข้อ)`, weight: 'bold', size: 'md', color: '#b91c1c' },
+        { type: 'text', text: 'ข้อที่ตอบผิด (' + wrongItems.length + ' ข้อ)', weight: 'bold', size: 'md', color: '#b91c1c' },
         { type: 'text', text: 'ทบทวนและปรับปรุงต่อไป', size: 'xs', color: '#9ca3af', margin: 'xs' },
       ],
     },
@@ -203,23 +210,25 @@ function buildWrongBubble(wrongItems, liffId) {
       type: 'box', layout: 'vertical', paddingAll: '14px',
       contents: rows,
     },
-    footer: buildFooter(liffId),
   };
+  const ft1 = buildFooter(liffId);
+  if (ft1) fb1.footer = ft1;
+  return fb1;
 }
 
 // ─── สร้าง Flex Message หลัก (carousel) ────────────────────────
-function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, detail, liffId }) {
+function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, detail, liffId, attemptCount }) {
   const wrongItems = (detail || [])
     .map((d, i) => ({ ...d, no: i + 1 }))
     .filter(d => !d.isRight);
 
-  const summaryBubble = buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount: wrongItems.length, liffId });
+  const summaryBubble = buildSummaryBubble({ lesson, displayName, score, total, pct, pass, min, sec, wrongCount: wrongItems.length, liffId, attemptCount });
   const wrongBubble   = buildWrongBubble(wrongItems, liffId);
   const isPass        = pass;
 
   return {
     type: 'flex',
-    altText: `📝 ${trunc(lesson,30)} | ${score}/${total} (${pct}%) ${isPass ? '✅ ผ่าน' : '❌ ไม่ผ่าน'} | ผิด ${wrongItems.length} ข้อ`,
+    altText: `ผลสอบ ${trunc(lesson,25)} ${score}/${total} (${pct}%) ${isPass ? 'ผ่าน' : 'ไม่ผ่าน'}`.slice(0, 400),
     contents: {
       type: 'carousel',
       contents: [summaryBubble, wrongBubble],
@@ -228,57 +237,147 @@ function buildFlexMsg({ lesson, displayName, score, total, pct, pass, min, sec, 
 }
 
 export default function ScoreScreen() {
-  const { navigate, profile, lineEmail, exam } = useApp();
+  const { navigate, profile, lineEmail, exam, setExam } = useApp();
   const arcRef   = useRef(null);
   const savedRef = useRef(false);
 
+  // Server verification states
+  const [verifying, setVerifying] = useState(true);
+  const [verifyError, setVerifyError] = useState('');
+  const [serverResult, setServerResult] = useState(null); // { score, total, pct, pass, detail, examId }
+
   // สถานะการส่ง LINE
-  const [lineStatus, setLineStatus] = useState('idle'); // idle | sending | ok | err | noClient
+  const [lineStatus, setLineStatus] = useState('idle');
   const [lineErrMsg, setLineErrMsg] = useState('');
+  const [saveQueued, setSaveQueued] = useState(false);
+  const [syncCount, setSyncCount]   = useState(0);
 
-  const tot  = exam.questions.length;
-  const pct  = tot > 0 ? Math.round((exam.score / tot) * 100) : 0;
-  const pass = pct >= PASS_THRESHOLD;
-  const min  = Math.floor(exam.timeUsed / 60);
-  const sec  = String(exam.timeUsed % 60).padStart(2, '0');
+  useEffect(() => {
+    function handleOnline() {
+      syncOfflineQueue().then(n => {
+        if (n > 0) { setSyncCount(n); setSaveQueued(false); }
+      }).catch(() => {});
+    }
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
 
-  // ── บันทึกผล + ส่ง Flex Message ───────────────────────
+  // ── ส่งคำตอบไป server เพื่อตรวจคะแนน ───────────────────
   useEffect(() => {
     if (savedRef.current) return;
     savedRef.current = true;
 
-    // Animate donut
-    setTimeout(() => {
-      if (arcRef.current)
-        arcRef.current.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct / 100);
-    }, 80);
+    (async () => {
+      try {
+        const data = await apiPost({
+          action:      'saveResult',
+          userId:      profile?.userId      || '',
+          displayName: profile?.displayName || '',
+          email:       lineEmail            || '',
+          lesson:      exam.lesson,
+          questionIds: exam.questionIds     || exam.questions.map(q => q.id),
+          userAnswers: exam.userAnswers     || exam.answers,
+          timeUsed:    exam.timeUsed,
+          setId:       exam.setId           || '',
+        });
 
-    // Confetti
-    if (pct >= 80 && typeof confetti === 'function') {
-      confetti({ particleCount: 200, spread: 100, origin: { y: .6 } });
-    }
+        if (!data.success) {
+          setVerifyError(data.message || 'บันทึกผลสอบไม่สำเร็จ');
+          setVerifying(false);
+          return;
+        }
 
-    // 1) บันทึกผลสอบ
-    apiPost({
-      action:      'saveResult',
-      userId:      profile?.userId      || '',
-      displayName: profile?.displayName || '',
-      email:       lineEmail            || '',
-      lesson:      exam.lesson,
-      score:       exam.score,
-      total:       tot,
-      timeUsed:    exam.timeUsed,
-      detail:      exam.detail,
-      setId:       exam.setId           || '',   // บันทึก setId ถ้าสอบจากชุด
-    }).catch(e => console.error('saveResult error:', e));
+        const result = {
+          score:  data.score,
+          total:  data.total,
+          pct:    data.pct,
+          pass:   data.pass === 'ผ่าน',
+          detail: data.detail || [],
+          examId: data.examId,
+          suspicious: data.suspicious,
+          attemptCount: data.attemptCount || 0,
+        };
+        setServerResult(result);
 
-    // 2) ส่ง Flex Message ทาง LIFF
-    sendLineMessage();
+        // อัปเดต exam context ด้วยผลจาก server
+        setExam(prev => ({
+          ...prev,
+          score:  result.score,
+          detail: result.detail,
+        }));
+
+        setVerifying(false);
+
+        // Animate donut + confetti
+        setTimeout(() => {
+          if (arcRef.current)
+            arcRef.current.style.strokeDashoffset = CIRCUMFERENCE * (1 - result.pct / 100);
+        }, 80);
+        if (result.pct >= 80 && typeof confetti === 'function') {
+          confetti({ particleCount: 200, spread: 100, origin: { y: .6 } });
+        }
+
+        // Achievement celebration popup
+        if (result.pass) {
+          const badge = result.pct === 100 ? '💎 Perfect Score!' : result.pct >= 90 ? '🏅 เกรด A+' : result.pct >= 80 ? '🌟 ยอดเยี่ยม!' : '✅ ผ่านการสอบ!';
+          setTimeout(() => {
+            Swal.fire({
+              title: badge,
+              html: result.pct >= 90
+                ? `<div style="font-size:14px">คะแนน <b>${result.pct}%</b> — คุณทำได้ดีมาก!</div>`
+                : `<div style="font-size:14px">คะแนน <b>${result.pct}%</b> — ดีใจด้วย!</div>`,
+              icon: result.pct >= 90 ? 'success' : 'info',
+              timer: 3000, timerProgressBar: true, showConfirmButton: false,
+              backdrop: 'rgba(0,0,0,.4)',
+            });
+          }, 500);
+        }
+
+        // ส่ง LINE message
+        sendLineMessage(result);
+      } catch (e) {
+        // Offline fallback
+        setSaveQueued(true);
+        setVerifying(false);
+        setVerifyError('ไม่สามารถเชื่อมต่อ server ได้ — ผลสอบจะส่งเมื่อออนไลน์');
+
+        // queue for later
+        apiPostQueued({
+          action:      'saveResult',
+          userId:      profile?.userId      || '',
+          displayName: profile?.displayName || '',
+          email:       lineEmail            || '',
+          lesson:      exam.lesson,
+          questionIds: exam.questionIds     || exam.questions.map(q => q.id),
+          userAnswers: exam.userAnswers     || exam.answers,
+          timeUsed:    exam.timeUsed,
+          setId:       exam.setId           || '',
+        }).catch(() => {});
+      }
+
+      // sync old queued items
+      try {
+        const prevQueued = getOfflineQueueCount();
+        if (prevQueued > 0) {
+          const n = await syncOfflineQueue();
+          if (n > 0) setSyncCount(n);
+        }
+      } catch (_) {}
+    })();
   }, []);
 
+  // Computed values from server result
+  const tot  = serverResult?.total ?? exam.questions.length;
+  const sc   = serverResult?.score ?? 0;
+  const pct  = serverResult?.pct   ?? 0;
+  const pass = serverResult?.pass  ?? false;
+  const min  = Math.floor(exam.timeUsed / 60);
+  const sec  = String(exam.timeUsed % 60).padStart(2, '0');
+
   // ── ฟังก์ชันส่ง LINE (แยกออกมาเพื่อกด "ส่งใหม่" ได้) ──
-  async function sendLineMessage() {
-    // ตรวจสอบว่าอยู่ใน LINE App หรือเปล่า
+  async function sendLineMessage(result) {
+    const r = result || serverResult;
+    if (!r) return;
     if (!window.liff?.isInClient?.()) {
       setLineStatus('noClient');
       return;
@@ -287,16 +386,17 @@ export default function ScoreScreen() {
     setLineStatus('sending');
     try {
       const msg = buildFlexMsg({
-        lesson:      exam.lesson,
-        displayName: profile?.displayName || '',
-        score:       exam.score,
-        total:       tot,
-        pct,
-        pass,
+        lesson:       exam.lesson,
+        displayName:  profile?.displayName || '',
+        score:        r.score,
+        total:        r.total,
+        pct:          r.pct,
+        pass:         r.pass,
         min,
         sec,
-        detail:      exam.detail || [],
-        liffId:      LIFF_ID,
+        detail:       r.detail || [],
+        liffId:       LIFF_ID,
+        attemptCount: r.attemptCount || 0,
       });
 
       await liff.sendMessages([msg]);
@@ -319,9 +419,54 @@ export default function ScoreScreen() {
 
   const color = pass ? '#22c55e' : '#ef4444';
 
+  // ── Loading state: กำลังตรวจคะแนน ──
+  if (verifying) {
+    return (
+      <div className="quiz-card rounded-2xl p-8 sm:p-10 animate-fade">
+        <div className="text-center">
+          <img src={APP_LOGO} alt="logo" style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 16px', display: 'block' }} />
+          <div className="spinner" style={{ margin: '0 auto 16px' }} />
+          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>
+            กำลังประมวลผล...
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Loading.... กรุณารอสักครู่
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error state ──
+  if (verifyError && !serverResult) {
+    return (
+      <div className="quiz-card rounded-2xl p-8 sm:p-10 animate-fade">
+        <div className="text-center">
+          <div style={{ fontSize: 48, marginBottom: 16 }}>{saveQueued ? '📶' : '⚠️'}</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: saveQueued ? '#92400e' : '#ef4444', marginBottom: 8 }}>
+            {saveQueued ? 'ไม่มีสัญญาณอินเทอร์เน็ต' : verifyError}
+          </div>
+          {saveQueued && (
+            <div className="rounded-xl px-4 py-3 mb-4 text-sm text-left" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+              ผลสอบถูกบันทึกไว้ในเครื่องแล้ว และจะส่งไปยัง server อัตโนมัติเมื่อมีสัญญาณอินเทอร์เน็ตกลับมา
+            </div>
+          )}
+          <button className="btn btn-primary rounded-xl py-2.5 px-6 text-sm" onClick={() => navigate('setup')}>
+            กลับหน้าหลัก
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="quiz-card rounded-2xl p-4 sm:p-7 animate-bounce-in">
       <div className="text-center">
+
+        {/* Logo */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+          <img src={APP_LOGO} alt="logo" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', boxShadow: '0 3px 12px rgba(0,0,0,.1)' }} />
+        </div>
 
         {/* Donut */}
         <div className="relative w-28 h-28 sm:w-36 sm:h-36 mx-auto mb-4">
@@ -336,7 +481,7 @@ export default function ScoreScreen() {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="text-xl sm:text-2xl font-extrabold" style={{ color }}>{pct}%</div>
-            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{exam.score}/{tot}</div>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{sc}/{tot}</div>
           </div>
         </div>
 
@@ -351,14 +496,26 @@ export default function ScoreScreen() {
           เกณฑ์ผ่าน {PASS_THRESHOLD}% ขึ้นไป
         </div>
 
+        {/* Offline queued notice */}
+        {saveQueued && (
+          <div className="rounded-xl px-3 py-2 mb-3 text-xs text-left" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+            📶 ไม่มีสัญญาณอินเทอร์เน็ต — ผลสอบถูกบันทึกไว้ในเครื่องและจะส่งอัตโนมัติเมื่อออนไลน์กลับมา
+          </div>
+        )}
+        {syncCount > 0 && (
+          <div className="rounded-xl px-3 py-2 mb-3 text-xs text-left" style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}>
+            ✅ ซิงก์ผลสอบที่ค้างไว้ {syncCount} รายการ สำเร็จแล้ว
+          </div>
+        )}
+
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           <div className="stat-box animate-slide-up" style={{ animationDelay: '.1s' }}>
-            <div className="text-xl sm:text-2xl font-black" style={{ color: 'var(--accent)' }}>{exam.score}</div>
+            <div className="text-xl sm:text-2xl font-black" style={{ color: 'var(--accent)' }}>{sc}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ถูก</div>
           </div>
           <div className="stat-box animate-slide-up" style={{ animationDelay: '.22s' }}>
-            <div className="text-xl sm:text-2xl font-black text-red-500">{tot - exam.score}</div>
+            <div className="text-xl sm:text-2xl font-black text-red-500">{tot - sc}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ผิด</div>
           </div>
           <div className="stat-box animate-slide-up" style={{ animationDelay: '.34s' }}>
@@ -366,6 +523,45 @@ export default function ScoreScreen() {
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>เวลาที่ใช้</div>
           </div>
         </div>
+
+        {/* Subject Breakdown */}
+        {(() => {
+          const detail = serverResult?.detail || [];
+          if (detail.length === 0) return null;
+          const bySubj = {};
+          detail.forEach(d => {
+            const key = d.lesson || d.subject || exam.lesson || 'ทั่วไป';
+            if (!bySubj[key]) bySubj[key] = { right: 0, total: 0 };
+            bySubj[key].total++;
+            if (d.isRight) bySubj[key].right++;
+          });
+          const subjects = Object.entries(bySubj);
+          if (subjects.length <= 1) return null;
+          return (
+            <div className="mb-5 text-left animate-slide-up" style={{ animationDelay: '.4s' }}>
+              <div className="text-xs font-bold mb-2" style={{ color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                📊 คะแนนแยกตามหมวด
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {subjects.map(([name, s]) => {
+                  const p = Math.round((s.right / s.total) * 100);
+                  const barColor = p >= 80 ? '#16a34a' : p >= 60 ? '#3b82f6' : '#ef4444';
+                  return (
+                    <div key={name} style={{ background: 'var(--input-bg)', borderRadius: 12, padding: '8px 12px', border: '1px solid var(--input-border)' }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold truncate" style={{ color: 'var(--text)', maxWidth: '60%' }}>{name}</span>
+                        <span className="text-xs font-bold" style={{ color: barColor }}>{s.right}/{s.total} ({p}%)</span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 99, background: 'var(--progress-trk)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', borderRadius: 99, background: barColor, width: `${p}%`, transition: 'width .5s' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* LINE Status ─────────────────────────── */}
         {lineStatus === 'sending' && (
@@ -423,9 +619,18 @@ export default function ScoreScreen() {
 
         {/* Actions */}
         <div className="space-y-3">
-          <button className="btn btn-blue w-full rounded-xl py-2.5 text-sm"    onClick={() => navigate('review')}>
-            🔍 ดูเฉลยทุกข้อ
-          </button>
+          {exam.allowReview !== false && (
+            <button className="btn btn-blue w-full rounded-xl py-2.5 text-sm" onClick={() => navigate('review')}>
+              🔍 ดูเฉลยทุกข้อ
+            </button>
+          )}
+          {exam.setId && (
+            <button className="btn w-full rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: '#d97706', color: 'white' }}
+              onClick={() => navigate('examSetLeaderboard')}>
+              🏆 ดูอันดับชุดข้อสอบนี้
+            </button>
+          )}
           <button className="btn btn-primary w-full rounded-xl py-2.5 text-sm" onClick={() => navigate('quiz')}>
             🔄 สอบใหม่วิชาเดิม
           </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiGet } from '../utils/api';
 import Spinner from '../components/Spinner';
+import { FALLBACK_AVATAR } from '../config';
 
 function formatThaiDate(dateStr) {
   try {
@@ -102,7 +103,7 @@ export default function CertificateScreen() {
 
           {/* Avatar + Name */}
           <div className="flex flex-col items-center gap-2">
-            <img src={profile?.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
+            <img src={profile?.pictureUrl || FALLBACK_AVATAR}
               alt="" className="w-16 h-16 rounded-full object-cover"
               style={{ border: '3px solid #4f46e5', boxShadow: '0 0 0 3px #e0e7ff' }}/>
             <div className="text-xl font-black" style={{ color: '#1e1b4b' }}>{profile?.displayName}</div>

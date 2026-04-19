@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
+import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
 import { apiGet, apiPost } from '../utils/api';
 import Spinner from '../components/Spinner';
 
 
 export default function BookmarkScreen() {
-  const { navigate, profile, bookmarks, setBookmarks } = useApp();
+  const { navigate, profile, bookmarks, setBookmarks, setExam } = useApp();
   const [loading, setLoading]   = useState(bookmarks === null);
   const [removing, setRemoving] = useState(null); // questionText ที่กำลัง remove
   const [filter, setFilter]     = useState('');   // filter by lesson
@@ -18,11 +19,11 @@ export default function BookmarkScreen() {
   async function load() {
     setLoading(true);
     try {
-      const data = await apiGet('getBookmarks', { userId: profile.userId });
+      const data = await apiGet('getBookmarks', { userId: profile?.userId });
       if (!data.success) throw new Error(data.message || 'โหลด bookmark ไม่สำเร็จ');
       setBookmarks(data.bookmarks || []);
     } catch (e) {
-      alert(e.message);
+      Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -31,10 +32,10 @@ export default function BookmarkScreen() {
   async function handleRemove(questionText) {
     setRemoving(questionText);
     try {
-      await apiPost({ action: 'removeBookmark', userId: profile.userId, questionText });
+      await apiPost({ action: 'removeBookmark', userId: profile?.userId, questionText });
       setBookmarks(prev => (prev || []).filter(b => b.questionText !== questionText));
     } catch (e) {
-      alert('ลบ bookmark ไม่สำเร็จ');
+      Swal.fire('ลบไม่สำเร็จ', 'ลบ bookmark ไม่สำเร็จ กรุณาลองใหม่', 'error');
     } finally {
       setRemoving(null);
     }
@@ -64,6 +65,28 @@ export default function BookmarkScreen() {
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
           </div>
         </div>
+        {/* Quiz from bookmarks */}
+        {filtered.length > 0 && (
+          <button
+            className="btn w-full text-sm rounded-xl py-2.5 mt-3 font-bold"
+            style={{ background: 'var(--accent)', color: 'white' }}
+            onClick={() => {
+              const quizQ = filtered.map((b, idx) => ({
+                id: b.questionId || `bm_${idx}`,
+                question: b.questionText,
+                options: b.options || [],
+                answer: b.correctAnswer,
+                questionType: (b.options && b.options.length > 0) ? 'mc' : 'fill',
+                explanation: b.explanation || '',
+                lesson: b.lesson || '',
+                subject: b.lesson || '',
+              }));
+              setExam({ lesson: 'Bookmark', questions: quizQ, allQ: quizQ, answers: [], qTime: [], fromBookmark: true, shuffleQ: false, shuffleOpt: false });
+              navigate('quiz');
+            }}>
+            ✏️ ฝึกทำข้อสอบจาก Bookmark ({filtered.length} ข้อ)
+          </button>
+        )}
       </div>
 
       {/* Filter */}

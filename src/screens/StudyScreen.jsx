@@ -67,6 +67,8 @@ export default function StudyScreen() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -74,7 +76,7 @@ export default function StudyScreen() {
         if (exam.allQ?.length) {
           setQuestions(exam.allQ);
         } else {
-          const data = await apiGetCached('getQuestions', { lesson: exam.lesson }, 3 * 60_000);
+          const data = await apiGetCached('getStudyQuestions', { lesson: exam.lesson }, 3 * 60_000);
           if (!Array.isArray(data) || !data.length) throw new Error('ไม่พบข้อสอบ');
           setQuestions(data);
         }
@@ -110,16 +112,35 @@ export default function StudyScreen() {
           value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
-      {/* Study Cards */}
-      <div className="mb-4">
-        {filtered.length === 0 ? (
-          <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
-            ไม่พบข้อสอบที่ตรงกับคำค้น
+      {/* Study Cards (paginated) */}
+      {(() => {
+        const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+        const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+        return (
+          <div className="mb-4">
+            {filtered.length === 0 ? (
+              <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+                ไม่พบข้อสอบที่ตรงกับคำค้น
+              </div>
+            ) : (
+              <>
+                {paged.map((q, i) => <StudyCard key={page * PAGE_SIZE + i} q={q} num={page * PAGE_SIZE + i + 1} />)}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-4">
+                    <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" disabled={page === 0}
+                      onClick={() => { setPage(p => p - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>← ก่อนหน้า</button>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {page + 1} / {totalPages} ({filtered.length} ข้อ)
+                    </span>
+                    <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" disabled={page >= totalPages - 1}
+                      onClick={() => { setPage(p => p + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>ถัดไป →</button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-        ) : (
-          filtered.map((q, i) => <StudyCard key={i} q={q} num={i + 1} />)
-        )}
-      </div>
+        );
+      })()}
 
       <button className="btn btn-gray w-full rounded-xl py-3" onClick={() => navigate('subject')}>
         ← กลับเลือกวิชา

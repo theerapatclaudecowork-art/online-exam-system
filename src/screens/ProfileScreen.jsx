@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiGet } from '../utils/api';
+import { FALLBACK_AVATAR } from '../config';
 
 const STATUS_LABEL = {
   active:   { label: 'ใช้งาน',    bg: '#dcfce7', color: '#15803d' },
@@ -79,7 +80,7 @@ export default function ProfileScreen() {
           {/* Avatar + ชื่อ LINE */}
           <div className="flex flex-col items-center gap-2 mb-6">
             <img
-              src={data.pictureUrl || profile?.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
+              src={data.pictureUrl || profile?.pictureUrl || FALLBACK_AVATAR}
               alt="avatar"
               className="w-20 h-20 rounded-full object-cover shadow-md"
             />
@@ -94,11 +95,11 @@ export default function ProfileScreen() {
           {/* ข้อมูล */}
           <div className="rounded-xl px-2" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
             <Row label="ชื่อ-นามสกุล"         value={data.fullName} />
-            <Row label="รหัสสมาชิก"           value={data.studentId} />
+            <Row label="หลักสูตร"             value={data.studentId} />
             <Row label="หน่วยงาน"              value={data.department} />
             <Row label="อีเมล"                 value={data.email} />
             <PhoneRow label="เบอร์โทรศัพท์"     value={data.phone} />
-            <Row label="LINE ID"               value={data.lineUserId} />
+            <Row label="User ID"               value={data.lineUserId} />
             <Row label="วันที่สมัคร"           value={data.joinDate} />
             {data.role && <Row label="สิทธิ์"  value={data.role} />}
           </div>

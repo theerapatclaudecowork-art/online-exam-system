@@ -14,7 +14,7 @@ export default function DrillScreen() {
     (async () => {
       try {
         const res = await apiGet('getDrillQuestions', {
-          userId: profile.userId,
+          userId: profile?.userId,
           lesson: exam.lesson || '',
         });
         if (!res.success) throw new Error(res.message || 'โหลดข้อมูลไม่สำเร็จ');
@@ -29,15 +29,16 @@ export default function DrillScreen() {
           return;
         }
         setTotal(res.total);
-        // ส่งไปสอบเหมือนปกติ แต่ใช้ข้อที่ตอบผิด
-        const shuffled = [...res.questions].sort(() => Math.random() - 0.5).slice(0, Math.min(settings.numQ || 20, res.questions.length));
+        // Spaced repetition: server ส่ง weighted questions มาแล้ว (ข้อที่ผิดบ่อยซ้ำถี่ขึ้น)
+        const questions = res.questions.slice(0, Math.min(settings.numQ || 20, res.questions.length));
         setSettings(s => ({ ...s, useTimer: false })); // drill = ไม่จับเวลา
         setExam(prev => ({
           ...prev,
-          lesson: (exam.lesson || 'Drill Mode') + ' (ข้อที่เคยผิด)',
+          lesson: (exam.lesson || 'Drill Mode') + ' (ฝึกจุดอ่อน)',
           setId: '',
-          allQ: shuffled,
+          allQ: questions,
           passThreshold: PASS_THRESHOLD,
+          shuffleQ: false, // ใช้ลำดับจาก server (weighted)
         }));
         navigate('quiz');
       } catch (e) {
