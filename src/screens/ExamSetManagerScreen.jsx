@@ -6,6 +6,7 @@ import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
 import { apiGet, apiPost, apiGetCached } from '../utils/api';
 import Spinner from '../components/Spinner';
+import { LIFF_ID } from '../config';
 
 const STATUS_CFG = {
   active:   { label: 'เปิดใช้',  bg: '#dcfce7', color: '#15803d' },
@@ -48,23 +49,27 @@ function SubjectRow({ sub, subjectOptions, onUpdate, onRemove }) {
 }
 
 // ─── Modal แก้ไข / สร้าง ─────────────────────────────────────
-function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose, onSaved }) {
+function ExamSetFormModal({ set, subjectOptions, members, courses, callerUserId, onClose, onSaved }) {
   const isNew = !set?.setId;
 
   const [form, setForm] = useState({
-    setName:       set?.setName       || '',
-    description:   set?.description   || '',
-    subjects:      set?.subjects      || [],
-    status:        set?.status        || 'draft',
-    visibility:    set?.visibility    || 'public',
-    allowedUsers:  set?.allowedUsers  || [],
-    maxAttempts:   set?.maxAttempts   ?? 0,
-    timerMin:      set?.timerMin      ?? 0,
-    passThreshold: set?.passThreshold ?? 60,
-    setOrder:      set?.setOrder      ?? 99,
-    startDate:     set?.startDate     || '',
-    endDate:       set?.endDate       || '',
-    pin:           '',   // ไม่แสดง PIN เก่า (server ไม่ส่งมา) — ปล่อยว่างถ้าไม่ต้องการเปลี่ยน
+    setName:        set?.setName        || '',
+    description:    set?.description    || '',
+    subjects:       set?.subjects       || [],
+    status:         set?.status         || 'draft',
+    visibility:     set?.visibility     || 'public',
+    allowedUsers:   set?.allowedUsers   || [],
+    allowedCourses: set?.allowedCourses || [],
+    maxAttempts:    set?.maxAttempts    ?? 0,
+    timerMin:       set?.timerMin       ?? 0,
+    passThreshold:  set?.passThreshold  ?? 60,
+    setOrder:       set?.setOrder       ?? 99,
+    startDate:      set?.startDate      || '',
+    endDate:        set?.endDate        || '',
+    pin:            '',   // ไม่แสดง PIN เก่า (server ไม่ส่งมา) — ปล่อยว่างถ้าไม่ต้องการเปลี่ยน
+    shuffleQ:       set?.shuffleQ    ?? true,
+    shuffleOpt:     set?.shuffleOpt  ?? false,
+    allowReview:    set?.allowReview ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
@@ -114,7 +119,8 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
     { key: 'basic',    label: '📋 ข้อมูลทั่วไป' },
     { key: 'subjects', label: `📚 วิชา (${form.subjects.length})` },
     { key: 'settings', label: '⚙️ ตั้งค่า' },
-    { key: 'access',   label: '🔐 สิทธิ์' },
+    { key: 'courses',  label: `🎓 หลักสูตร${form.allowedCourses.length > 0 ? ` (${form.allowedCourses.length})` : ''}` },
+    { key: 'access',   label: '🔐 สิทธิ์รายบุคคล' },
   ];
 
   return (
@@ -324,6 +330,106 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
                   {set?.hasPin && !form.pin && <span style={{ color: '#d97706' }}> • PIN ปัจจุบันยังคงอยู่</span>}
                 </p>
               </div>
+
+              {/* ── Toggle options ── */}
+              <div className="space-y-2">
+                {[
+                  { key: 'shuffleQ',    icon: '🔀', label: 'สุ่มลำดับข้อสอบ',   sub: 'คำถามจะเรียงสลับทุกครั้ง' },
+                  { key: 'shuffleOpt',  icon: '🎲', label: 'สุ่มลำดับตัวเลือก', sub: 'ตัวเลือก ก-ง สลับทุกครั้ง (เฉพาะ mc)' },
+                  { key: 'allowReview', icon: '📖', label: 'อนุญาตดูเฉลย',      sub: 'ผู้สอบดูเฉลยหลังส่งได้' },
+                ].map(opt => (
+                  <div key={opt.key}
+                    className="flex items-center justify-between p-3 rounded-xl cursor-pointer"
+                    style={{ background: 'var(--input-bg)', border: `1.5px solid ${form[opt.key] ? 'var(--accent)' : 'var(--input-border)'}` }}
+                    onClick={() => setForm(p => ({ ...p, [opt.key]: !p[opt.key] }))}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{opt.icon}</span>
+                      <div>
+                        <div className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{opt.label}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{opt.sub}</div>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 w-10 h-5 rounded-full relative transition-all"
+                      style={{ background: form[opt.key] ? 'var(--accent)' : 'var(--input-border)' }}>
+                      <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                        style={{ left: form[opt.key] ? '22px' : '2px', boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab: Courses ───────────────────── */}
+          {activeTab === 'courses' && (
+            <div className="space-y-3 animate-fade">
+
+              {/* คำอธิบาย */}
+              <div className="rounded-xl p-3 text-xs" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', border: '1px solid var(--input-border)' }}>
+                <div className="font-semibold mb-1" style={{ color: 'var(--text)' }}>🎓 กำหนดสิทธิ์ตามหลักสูตร</div>
+                <div>• <b>ไม่เลือกหลักสูตร</b> = ทุกคนเห็นชุดข้อสอบนี้</div>
+                <div>• <b>เลือกหลักสูตร</b> = เฉพาะสมาชิกที่ลงทะเบียนหลักสูตรนั้นเท่านั้น</div>
+                <div>• Admin สามารถแอดสมาชิกรายบุคคลใน tab "สิทธิ์รายบุคคล" ได้เสมอ</div>
+              </div>
+
+              {/* ปุ่ม เลือกทั้งหมด / ล้าง */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                  {form.allowedCourses.length === 0
+                    ? '🔓 เปิดให้ทุกหลักสูตร (ไม่จำกัด)'
+                    : `🔒 จำกัด ${form.allowedCourses.length} หลักสูตร`}
+                </span>
+                <div className="flex gap-1.5">
+                  <button className="btn btn-gray text-xs rounded-lg px-2 py-1"
+                    onClick={() => setForm(p => ({ ...p, allowedCourses: courses.map(c => c.name) }))}>
+                    เลือกทั้งหมด
+                  </button>
+                  <button className="btn btn-gray text-xs rounded-lg px-2 py-1"
+                    onClick={() => setForm(p => ({ ...p, allowedCourses: [] }))}>
+                    ล้าง (ทุกคน)
+                  </button>
+                </div>
+              </div>
+
+              {/* รายการหลักสูตร */}
+              {courses.length === 0 ? (
+                <div className="rounded-xl p-6 text-center text-xs" style={{ background: 'var(--input-bg)', color: 'var(--text-muted)' }}>
+                  ยังไม่มีหลักสูตร — สร้างหลักสูตรได้ที่ Admin › หลักสูตร
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {courses.map(c => {
+                    const checked = form.allowedCourses.includes(c.name);
+                    return (
+                      <div key={c.courseId}
+                        className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all"
+                        style={{
+                          background: checked ? 'var(--input-bg)' : 'transparent',
+                          border: `1.5px solid ${checked ? 'var(--accent)' : 'var(--input-border)'}`,
+                        }}
+                        onClick={() => setForm(p => ({
+                          ...p,
+                          allowedCourses: checked
+                            ? p.allowedCourses.filter(n => n !== c.name)
+                            : [...p.allowedCourses, c.name],
+                        }))}>
+                        <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                          style={{ background: checked ? 'var(--accent)' : 'transparent', border: `2px solid ${checked ? 'var(--accent)' : 'var(--text-muted)'}` }}>
+                          {checked && <span style={{ color: 'white', fontSize: 11, fontWeight: 900 }}>✓</span>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{c.name}</div>
+                          {!c.isOpen && <div className="text-xs" style={{ color: '#f59e0b' }}>⚠️ ปิดรับสมัคร</div>}
+                        </div>
+                        {checked && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
+                            style={{ background: '#dcfce7', color: '#15803d' }}>เลือก</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -331,7 +437,7 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
           {activeTab === 'access' && (
             <div className="space-y-3 animate-fade">
               <label className="block">
-                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>การมองเห็น</span>
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>การมองเห็น (ใช้เมื่อไม่ได้กำหนดหลักสูตร)</span>
                 <div className="flex gap-2 mt-2">
                   {[
                     { val: 'public',  label: '🌐 สาธารณะ',       sub: 'ทุกคนเห็น' },
@@ -378,7 +484,7 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
                           onClick={() => toggleUser(m.lineUserId)}>
                           <input type="checkbox" checked={checked} onChange={() => {}} className="w-4 h-4 flex-shrink-0" />
                           {m.pictureUrl
-                            ? <img src={m.pictureUrl} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                            ? <img src={m.pictureUrl} loading="lazy" decoding="async" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                             : <div className="w-8 h-8 rounded-full flex items-center justify-center text-base flex-shrink-0" style={{ background: 'var(--card)' }}>👤</div>
                           }
                           <div className="flex-1 min-w-0">
@@ -397,6 +503,34 @@ function ExamSetFormModal({ set, subjectOptions, members, callerUserId, onClose,
       </div>
     </div>
   );
+}
+
+// ─── QR Code helper ──────────────────────────────────────────
+async function showQR(set) {
+  const liffUrl = `https://liff.line.me/${LIFF_ID}`;
+  // ใช้ api.qrserver.com แทน Google Charts (ถูกปิดแล้ว)
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(liffUrl)}&color=1e293b&bgcolor=ffffff&qzone=1&format=png`;
+  await Swal.fire({
+    title: `🔲 QR ชุดข้อสอบ`,
+    html: `
+      <p style="font-size:13px;color:#6b7280;margin-bottom:12px;font-weight:600">${set.setName}</p>
+      <div style="background:#f8fafc;border-radius:16px;padding:16px;display:inline-block;box-shadow:0 2px 12px rgba(0,0,0,.10)">
+        <img src="${qrUrl}" alt="QR Code"
+          style="width:200px;height:200px;display:block;border-radius:8px;"
+          onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(liffUrl)}'" />
+      </div>
+      <p style="font-size:11px;color:#9ca3af;margin-top:12px">📱 สแกน QR ด้วย LINE เพื่อเข้าระบบข้อสอบ</p>
+      <p style="font-size:10px;color:#cbd5e1;margin-top:4px;word-break:break-all">${liffUrl}</p>
+    `,
+    showConfirmButton: true,
+    confirmButtonText: '✕ ปิด',
+    showDenyButton: true,
+    denyButtonText: '📋 คัดลอก URL',
+    preDeny: () => {
+      navigator.clipboard?.writeText(liffUrl).catch(() => {});
+      return false;
+    },
+  });
 }
 
 // ─── Set Card ────────────────────────────────────────────────
@@ -435,7 +569,9 @@ function ExamSetCard({ set, onEdit, onDelete, onView }) {
             <span style={{ color: 'var(--accent)', fontWeight: 600 }}>📚 {set.subjectCount} วิชา</span>
             <span style={{ color: 'var(--text-muted)' }}>• {set.totalQ === 0 ? 'ข้อสอบทั้งหมด' : set.totalQ + ' ข้อ'}</span>
             {set.timerMin > 0 && <span style={{ color: 'var(--text-muted)' }}>• ⏱ {set.timerMin} น.</span>}
-            <span style={{ color: vis.color }}>{vis.label}</span>
+            {set.allowedCourses && set.allowedCourses.length > 0
+              ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>🎓 {set.allowedCourses.join(', ')}</span>
+              : <span style={{ color: vis.color }}>{vis.label}</span>}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
@@ -471,6 +607,9 @@ function ExamSetCard({ set, onEdit, onDelete, onView }) {
           onClick={onEdit}>✏️ แก้ไข</button>
         <button className="btn btn-gray flex-1 text-xs rounded-lg py-1.5"
           onClick={onView}>📊 รายละเอียด</button>
+        <button className="btn text-xs rounded-lg py-1.5 px-3"
+          style={{ background: '#e0f2fe', color: '#0369a1' }}
+          onClick={() => showQR(set)}>🔲 QR</button>
         <button className="btn text-xs rounded-lg py-1.5 px-3"
           style={{ background: '#fee2e2', color: '#b91c1c' }}
           onClick={onDelete}>🗑</button>
@@ -586,7 +725,7 @@ function ExamSetDetailModal({ set, callerUserId, onClose, onEdit }) {
                       <div key={m.lineUserId} className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
                         style={{ background: 'var(--card)', border: '1px solid var(--input-border)' }}>
                         {m.pictureUrl
-                          ? <img src={m.pictureUrl} className="w-5 h-5 rounded-full object-cover" />
+                          ? <img src={m.pictureUrl} loading="lazy" decoding="async" className="w-5 h-5 rounded-full object-cover" />
                           : <span className="text-sm">👤</span>}
                         <span className="text-xs" style={{ color: 'var(--text)' }}>{m.fullName || m.displayName}</span>
                       </div>
@@ -626,6 +765,7 @@ export default function ExamSetManagerScreen() {
   const [loading, setLoading]   = useState(true);
   const [members, setMembers]   = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [courses, setCourses]   = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editSet, setEditSet]   = useState(null);   // null = new, obj = edit
   const [viewSet, setViewSet]   = useState(null);   // detail modal
@@ -636,14 +776,16 @@ export default function ExamSetManagerScreen() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [setsData, membersData, subjectsData] = await Promise.all([
+      const [setsData, membersData, subjectsData, coursesData] = await Promise.all([
         apiGet('getAdminExamSets', { userId: profile.userId }),
         apiGet('getMembersWithProfiles', { userId: profile.userId }),
         apiGetCached('getSubjects', {}, 5 * 60_000),
+        apiGetCached('getCourses', { userId: profile.userId }, 5 * 60_000),
       ]);
       if (setsData.success)    setSets(setsData.sets || []);
       if (membersData.success) setMembers(membersData.members || []);
       if (subjectsData.success) setSubjects(subjectsData.subjects || []);
+      if (coursesData.success)  setCourses(coursesData.courses || []);
     } catch (_) {}
     finally { setLoading(false); }
   }
@@ -678,6 +820,7 @@ export default function ExamSetManagerScreen() {
           set={editSet}
           subjectOptions={subjects}
           members={members}
+          courses={courses}
           callerUserId={profile.userId}
           onClose={() => { setShowForm(false); setEditSet(null); }}
           onSaved={loadAll}

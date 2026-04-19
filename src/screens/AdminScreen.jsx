@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef, Component } from 'react';
+import MessageInboxScreen from './MessageInboxScreen';
+import GeminiQuizGenerator from '../components/GeminiQuizGenerator';
+import SubjectManager from '../components/SubjectManager';
+import LessonManager from '../components/LessonManager';
 import Swal from 'sweetalert2';
 import { useApp } from '../context/AppContext';
 import { apiGet, apiPost, apiGetCached, lsInvalidate } from '../utils/api';
+import { useVisibleInterval } from '../utils/useVisibleInterval';
 import Spinner from '../components/Spinner';
 import StatsCharts from '../components/charts/StatsCharts';
+import { FALLBACK_AVATAR } from '../config';
+import Paginator from '../components/Paginator';
 
 class AdminErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -506,6 +513,10 @@ function MemberDetailModal({ member, callerUserId, lastSyncTime, onClose, onUpda
                       <span className="text-xs px-3 py-1 rounded-full font-semibold"
                         style={{ background: '#fef9c3', color: '#854d0e' }}>👑 Admin</span>
                     )}
+                    {form.role === 'teacher' && (
+                      <span className="text-xs px-3 py-1 rounded-full font-semibold"
+                        style={{ background: '#ede9fe', color: '#7c3aed' }}>🎓 ครูผู้สอน</span>
+                    )}
                   </div>
                 </div>
 
@@ -592,6 +603,7 @@ function MemberDetailModal({ member, callerUserId, lastSyncTime, onClose, onUpda
                           value={form.role}
                           onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
                           <option value="">สมาชิกทั่วไป</option>
+                          <option value="teacher">🎓 ครูผู้สอน</option>
                           <option value="admin">👑 Admin</option>
                         </select>
                       </label>
@@ -760,11 +772,892 @@ function MemberDetailModal({ member, callerUserId, lastSyncTime, onClose, onUpda
 }
 
 // ─────────────────────────────────────────────────────────────
+//  AnnouncementsSection — แยก component เพื่อไม่ละเมิด Rules of Hooks
+// ─────────────────────────────────────────────────────────────
+function AnnouncementsSection({ callerUserId }) {
+  const [anns,       setAnns]       = useState([]);
+  const [annForm,    setAnnForm]    = useState({ title: '', body: '', type: 'info', pinned: false });
+  const [annLoading, setAnnLoading] = useState(false);
+
+  const reload = () => apiGet('getAnnouncements', {}).then(d => { if (d.success) setAnns(d.announcements || []); });
+
+  useEffect(() => { reload(); }, []);
+
+  const add = async () => {
+    if (!annForm.title && !annForm.body) return;
+    setAnnLoading(true);
+    try {
+      const d = await apiPost({ action: 'addAnnouncement', callerUserId, ...annForm });
+      if (!d.success) throw new Error(d.message);
+      setAnnForm({ title: '', body: '', type: 'info', pinned: false });
+      reload();
+    } catch (e) { Swal.fire('ข้อผิดพลาด', e.message, 'error'); }
+    finally { setAnnLoading(false); }
+  };
+
+  const del = async (id) => {
+    const r = await Swal.fire({ title: 'ลบประกาศ?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'ลบ' });
+    if (!r.isConfirmed) return;
+    const d = await apiPost({ action: 'deleteAnnouncement', callerUserId, id });
+    if (d.success) reload();
+  };
+
+  const TYPE_LABEL = { info: 'ℹ️ ข้อมูล', warning: '⚠️ เตือน', success: '✅ ข่าวดี' };
+  const TYPE_BG    = { info: '#eff6ff', warning: '#fffbeb', success: '#f0fdf4' };
+  const TYPE_COLOR = { info: '#1d4ed8', warning: '#92400e', success: '#15803d' };
+
+  return (
+    <div className="quiz-card no-hover rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xl">📢</span>
+        <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>ประกาศ / ข่าวสาร</span>
+        <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
+          style={{ background: 'var(--input-bg)', color: 'var(--text-muted)' }}>{anns.length} รายการ</span>
+      </div>
+      {/* Form เพิ่มประกาศ */}
+      <div className="space-y-2 mb-3 p-3 rounded-xl" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+        <input className="themed-input w-full text-sm" placeholder="หัวข้อ (ไม่บังคับ)"
+          value={annForm.title} onChange={e => setAnnForm(p => ({ ...p, title: e.target.value }))} />
+        <textarea className="themed-input w-full text-sm" rows={2} placeholder="ข้อความประกาศ..."
+          value={annForm.body} onChange={e => setAnnForm(p => ({ ...p, body: e.target.value }))}
+          style={{ resize: 'none' }} />
+        <div className="flex gap-2">
+          <select className="themed-input flex-1 text-sm" value={annForm.type}
+            onChange={e => setAnnForm(p => ({ ...p, type: e.target.value }))}>
+            {Object.entries(TYPE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text)' }}>
+            <input type="checkbox" checked={annForm.pinned}
+              onChange={e => setAnnForm(p => ({ ...p, pinned: e.target.checked }))} />
+            📌 ปักหมุด
+          </label>
+          <button className="btn text-xs rounded-lg px-3 py-1.5"
+            style={{ background: (!annForm.title && !annForm.body) || annLoading ? 'var(--input-bg)' : 'var(--accent)', color: (!annForm.title && !annForm.body) || annLoading ? 'var(--text-muted)' : 'white' }}
+            disabled={(!annForm.title && !annForm.body) || annLoading}
+            onClick={add}>
+            {annLoading ? '⏳' : '➕ เพิ่ม'}
+          </button>
+        </div>
+      </div>
+      {/* รายการประกาศ */}
+      {anns.length === 0 ? (
+        <div className="text-center py-4 text-sm" style={{ color: 'var(--text-muted)' }}>ยังไม่มีประกาศ</div>
+      ) : (
+        <div className="space-y-2">
+          {anns.map(a => (
+            <div key={a.id} className="flex items-start gap-2 rounded-xl px-3 py-2.5"
+              style={{ background: TYPE_BG[a.type] || '#eff6ff', border: '1px solid var(--input-border)' }}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  {a.pinned && <span className="text-xs">📌</span>}
+                  <span className="text-xs font-semibold truncate" style={{ color: TYPE_COLOR[a.type] || '#1d4ed8' }}>
+                    {TYPE_LABEL[a.type]} {a.title && `— ${a.title}`}
+                  </span>
+                </div>
+                {a.body && <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{a.body}</div>}
+                <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', opacity: .6 }}>{a.createdAt}</div>
+              </div>
+              <button className="btn-gray btn text-xs rounded-lg px-2 py-1 flex-shrink-0"
+                onClick={() => del(a.id)}>🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ExamReminderSection — แยก component เพื่อไม่ละเมิด Rules of Hooks
+// ─────────────────────────────────────────────────────────────
+function ExamReminderSection({ callerUserId }) {
+  const [remStatus, setRemStatus] = useState(null);
+  const [remLoad,   setRemLoad]   = useState(false);
+
+  useEffect(() => {
+    apiGet('getReminderStatus', { userId: callerUserId })
+      .then(d => { if (d.success) setRemStatus(d); })
+      .catch(() => {});
+  }, []);
+
+  async function toggleReminder() {
+    setRemLoad(true);
+    try {
+      const action = remStatus?.active ? 'removeReminderTrigger' : 'setupReminderTrigger';
+      const d = await apiGet(action, { userId: callerUserId });
+      if (d.success) setRemStatus(prev => ({ ...prev, active: !prev?.active, message: d.message }));
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setRemLoad(false); }
+  }
+
+  return (
+    <div className="quiz-card no-hover rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>⏰ แจ้งเตือนใกล้หมดเวลาสอบ</div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ส่ง LINE แจ้งเตือน 24 ชั่วโมงก่อน ExamSet ปิด</div>
+        </div>
+        <button
+          className="btn text-xs rounded-lg px-3 py-1.5 font-semibold"
+          style={{ background: remStatus?.active ? '#ef4444' : '#16a34a', color: 'white', opacity: remLoad ? .6 : 1 }}
+          disabled={remLoad}
+          onClick={toggleReminder}>
+          {remLoad ? '...' : remStatus?.active ? '🔕 ปิด' : '🔔 เปิด'}
+        </button>
+      </div>
+      <div className="text-xs px-3 py-2 rounded-xl mb-3"
+        style={{ background: remStatus?.active ? '#f0fdf4' : '#fef2f2', color: remStatus?.active ? '#15803d' : '#b91c1c', border: `1px solid ${remStatus?.active ? '#bbf7d0' : '#fecaca'}` }}>
+        {remStatus?.active ? '✅ เปิดใช้งาน — ตรวจทุก 6 ชั่วโมง' : '❌ ปิดอยู่'}
+        {remStatus?.message && <span className="ml-2 opacity-75">({remStatus.message})</span>}
+      </div>
+      {remStatus?.logs?.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>ประวัติการแจ้งเตือนล่าสุด</div>
+          <div className="space-y-1">
+            {remStatus.logs.map((l, i) => (
+              <div key={i} className="text-xs flex gap-2" style={{ color: 'var(--text-muted)' }}>
+                <span className="flex-shrink-0">{l.sentAt}</span>
+                <span className="flex-1 truncate">{l.setName}</span>
+                <span>{l.recipients}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  QStatsTab — ข้อสอบที่ตอบผิดบ่อย
+// ─────────────────────────────────────────────────────────────
+function QStatsTab({ callerUserId }) {
+  const [stats,   setStats]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search,  setSearch]  = useState('');
+  const [filter,  setFilter]  = useState('all'); // all | hard | easy
+
+  useEffect(() => {
+    apiGet('getQuestionStats', { userId: callerUserId })
+      .then(d => { if (d.success) setStats(d.stats || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Spinner label="กำลังวิเคราะห์ข้อสอบ..." />;
+
+  const filtered = stats
+    .filter(s => !search || s.question.toLowerCase().includes(search.toLowerCase()) || s.subject.toLowerCase().includes(search.toLowerCase()))
+    .filter(s => filter === 'all' ? true : filter === 'hard' ? s.passRate < 50 : s.passRate >= 80);
+
+  const hard  = stats.filter(s => s.passRate < 50).length;
+  const easy  = stats.filter(s => s.passRate >= 80).length;
+  const total = stats.length;
+
+  return (
+    <div className="animate-fade space-y-4">
+      {/* Summary */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <h3 className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📉 สถิติข้อสอบ</h3>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { val: total, label: 'ข้อที่มีข้อมูล', color: 'var(--accent)' },
+            { val: hard,  label: 'ข้อยาก (<50%)', color: '#ef4444' },
+            { val: easy,  label: 'ข้อง่าย (≥80%)', color: '#16a34a' },
+          ].map(s => (
+            <div key={s.label} className="text-center rounded-xl py-3" style={{ background: 'var(--input-bg)' }}>
+              <div className="text-xl font-black" style={{ color: s.color }}>{s.val}</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filter + Search */}
+      <div className="quiz-card no-hover rounded-2xl p-3 space-y-2">
+        <input className="themed-input w-full text-sm" placeholder="🔍 ค้นหาคำถาม / วิชา..."
+          value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex gap-2">
+          {[
+            { val: 'all',  label: 'ทั้งหมด',       color: 'var(--accent)' },
+            { val: 'hard', label: '🔴 ยาก (<50%)',  color: '#ef4444' },
+            { val: 'easy', label: '🟢 ง่าย (≥80%)', color: '#16a34a' },
+          ].map(opt => (
+            <button key={opt.val}
+              className="flex-1 text-xs rounded-lg py-1.5 font-semibold transition-all"
+              style={{
+                background: filter === opt.val ? opt.color : 'var(--input-bg)',
+                color:      filter === opt.val ? 'white'    : 'var(--text-muted)',
+                border:     `1px solid ${filter === opt.val ? 'transparent' : 'var(--input-border)'}`,
+              }}
+              onClick={() => setFilter(opt.val)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="space-y-2">
+        {filtered.length === 0 ? (
+          <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+            {stats.length === 0 ? 'ยังไม่มีข้อมูลผลสอบ' : 'ไม่พบข้อที่ตรงกัน'}
+          </div>
+        ) : filtered.map((s, i) => (
+          <div key={i} className="quiz-card no-hover rounded-2xl p-3">
+            <div className="flex items-start gap-2 mb-2">
+              <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 font-bold"
+                style={{
+                  background: s.passRate < 50 ? '#fee2e2' : s.passRate >= 80 ? '#dcfce7' : '#fef9c3',
+                  color:      s.passRate < 50 ? '#b91c1c' : s.passRate >= 80 ? '#15803d' : '#854d0e',
+                }}>
+                {s.passRate}%
+              </span>
+              <p className="text-xs flex-1" style={{ color: 'var(--text)', lineHeight: 1.6 }}>{s.question}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 rounded-full h-2 overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                <div style={{ width: `${s.passRate}%`, height: '100%', borderRadius: 999,
+                  background: s.passRate < 50 ? '#ef4444' : s.passRate >= 80 ? '#22c55e' : '#f59e0b',
+                  transition: 'width .5s' }} />
+              </div>
+              <div className="text-xs flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                ถูก {s.correct}/{s.total} • {s.subject || 'ไม่ระบุ'}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  DeptTab — แยก component เพื่อไม่ละเมิด Rules of Hooks
+// ─────────────────────────────────────────────────────────────
+function DeptTab({ callerUserId }) {
+  const [deptData, setDeptData] = useState(null);
+  const [deptLoad, setDeptLoad] = useState(true);
+  const [editId,   setEditId]   = useState(null);
+  const [editDept, setEditDept] = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [openDept, setOpenDept] = useState(null); // accordion: ชื่อ dept ที่เปิดอยู่
+  const [search,   setSearch]   = useState('');
+
+  useEffect(() => {
+    apiGet('getDepartments', { userId: callerUserId })
+      .then(d => { if (d.success) setDeptData(d); })
+      .catch(() => {})
+      .finally(() => setDeptLoad(false));
+  }, []);
+
+  async function saveDept(lineUserId) {
+    setSaving(lineUserId);
+    try {
+      const res = await apiPost({ action: 'updateUserDept', callerUserId, lineUserId, department: editDept });
+      if (!res.success) throw new Error(res.message);
+      setDeptData(prev => {
+        const newMembers = prev.members.map(m => m.lineUserId === lineUserId ? { ...m, department: editDept } : m);
+        const map = {};
+        newMembers.forEach(m => { if (m.department) map[m.department] = (map[m.department] || 0) + 1; });
+        return {
+          ...prev,
+          members: newMembers,
+          departments: Object.keys(map).map(n => ({ name: n, count: map[n] })).sort((a, b) => b.count - a.count),
+        };
+      });
+      setEditId(null);
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  if (deptLoad) return <Spinner label="กำลังโหลด..." />;
+
+  const allMembers = deptData?.members || [];
+  // เรียง dept มากไปน้อย
+  const depts = (deptData?.departments || []).slice().sort((a, b) => b.count - a.count);
+  const noDept = allMembers.filter(m => !m.department);
+
+  // search กรอง
+  const searchLow = search.trim().toLowerCase();
+  function matchSearch(m) {
+    if (!searchLow) return true;
+    return (m.fullName + m.displayName + (m.department || '') + (m.studentId || '')).toLowerCase().includes(searchLow);
+  }
+
+  // สร้าง grouped list: [ { name, count, members[] }, ... ]  + กลุ่มไม่ระบุ
+  const grouped = depts.map(d => ({
+    name:    d.name,
+    count:   d.count,
+    members: allMembers.filter(m => m.department === d.name && matchSearch(m)),
+  })).filter(g => !searchLow || g.members.length > 0);
+
+  if (!searchLow && noDept.length > 0) {
+    grouped.push({ name: '— ไม่ระบุหน่วยงาน —', count: noDept.length, members: noDept });
+  } else if (searchLow) {
+    const noMatch = noDept.filter(matchSearch);
+    if (noMatch.length > 0) grouped.push({ name: '— ไม่ระบุหน่วยงาน —', count: noMatch.length, members: noMatch });
+  }
+
+  const totalMembers = allMembers.length;
+
+  return (
+    <div className="animate-fade space-y-3">
+
+      {/* Header summary */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold text-base" style={{ color: 'var(--text)' }}>🏢 หน่วยงาน</div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {depts.length} หน่วยงาน • {totalMembers} สมาชิก
+            </div>
+          </div>
+          <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5"
+            onClick={() => {
+              setDeptLoad(true);
+              apiGet('getDepartments', { userId: callerUserId })
+                .then(d => { if (d.success) setDeptData(d); })
+                .catch(() => {}).finally(() => setDeptLoad(false));
+            }}>🔄 รีเฟรช</button>
+        </div>
+
+        {/* Search */}
+        <div className="relative mt-3">
+          <input className="themed-input w-full pr-8" placeholder="🔍 ค้นหาชื่อ / หน่วยงาน..."
+            value={search} onChange={e => { setSearch(e.target.value); setOpenDept(null); }} />
+          {search && (
+            <button onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100">✕</button>
+          )}
+        </div>
+
+        {/* Top-3 summary chips */}
+        {!searchLow && depts.length > 0 && (
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            {depts.slice(0, 5).map((d, i) => {
+              const colors = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444'];
+              return (
+                <button key={d.name}
+                  className="flex-shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-1.5 transition-all"
+                  style={{
+                    background: openDept === d.name ? colors[i % colors.length] : 'var(--input-bg)',
+                    border: `1.5px solid ${openDept === d.name ? colors[i % colors.length] : 'var(--input-border)'}`,
+                    color: openDept === d.name ? 'white' : 'var(--text)',
+                  }}
+                  onClick={() => setOpenDept(prev => prev === d.name ? null : d.name)}>
+                  <span className="text-sm font-black">{d.count}</span>
+                  <span className="text-xs max-w-[80px] truncate">{d.name}</span>
+                </button>
+              );
+            })}
+            {depts.length > 5 && (
+              <span className="flex-shrink-0 flex items-center text-xs px-3 py-1.5 rounded-xl"
+                style={{ background: 'var(--input-bg)', color: 'var(--text-muted)' }}>
+                +{depts.length - 5} อื่นๆ
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Accordion list */}
+      {grouped.length === 0 ? (
+        <div className="quiz-card no-hover rounded-2xl p-10 text-center" style={{ color: 'var(--text-muted)' }}>
+          {searchLow ? 'ไม่พบสมาชิกที่ค้นหา' : 'ไม่มีข้อมูลหน่วยงาน'}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {grouped.map((g, gi) => {
+            const isOpen = openDept === g.name || !!searchLow;
+            const colors = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
+            const accent = g.name === '— ไม่ระบุหน่วยงาน —' ? '#94a3b8' : colors[gi % colors.length];
+            return (
+              <div key={g.name} className="quiz-card no-hover rounded-2xl overflow-hidden">
+
+                {/* Dropdown header — กดเพื่อเปิด/ปิด */}
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3 transition-all text-left"
+                  style={{ background: isOpen ? 'var(--input-bg)' : 'transparent', borderBottom: isOpen ? '1px solid var(--input-border)' : 'none' }}
+                  onClick={() => !searchLow && setOpenDept(prev => prev === g.name ? null : g.name)}>
+
+                  {/* Count bubble */}
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-sm"
+                    style={{ background: accent + '22', color: accent }}>
+                    {g.count}
+                  </div>
+
+                  {/* Name + bar */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm truncate" style={{ color: 'var(--text)' }}>{g.name}</div>
+                    <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--card-border)' }}>
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${Math.round((g.count / Math.max(grouped[0].count, 1)) * 100)}%`, background: accent }} />
+                    </div>
+                  </div>
+
+                  {/* Percent + chevron */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-bold" style={{ color: accent }}>
+                      {Math.round((g.count / totalMembers) * 100)}%
+                    </span>
+                    {!searchLow && (
+                      <span className="text-base transition-transform" style={{
+                        color: 'var(--text-muted)',
+                        transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        display: 'inline-block',
+                      }}>▾</span>
+                    )}
+                  </div>
+                </button>
+
+                {/* Member list (expanded) */}
+                {isOpen && (
+                  <div className="divide-y" style={{ borderColor: 'var(--input-border)' }}>
+                    {g.members.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-center" style={{ color: 'var(--text-muted)' }}>
+                        ไม่พบสมาชิก
+                      </div>
+                    ) : g.members.map(m => (
+                      <div key={m.lineUserId} className="px-4 py-2.5 flex items-center gap-3">
+                        {/* Avatar */}
+                        {m.pictureUrl
+                          ? <img src={m.pictureUrl} loading="lazy" decoding="async" className="w-9 h-9 rounded-full object-cover flex-shrink-0" alt=""
+                              onError={e => { e.target.style.display='none'; }} />
+                          : <div className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-lg"
+                              style={{ background: 'var(--input-bg)' }}>👤</div>}
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>
+                            {m.fullName || m.displayName}
+                          </div>
+                          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {m.studentId && `#${m.studentId} • `}{m.email || ''}
+                          </div>
+                        </div>
+
+                        {/* Edit dept */}
+                        {editId === m.lineUserId ? (
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <input list="dept-list-acc" className="themed-input text-xs" style={{ width: 120 }}
+                              placeholder="ชื่อหน่วยงาน..."
+                              value={editDept} onChange={e => setEditDept(e.target.value)} />
+                            <datalist id="dept-list-acc">
+                              {depts.map(d => <option key={d.name} value={d.name} />)}
+                            </datalist>
+                            <button className="btn btn-primary text-xs rounded-lg px-2 py-1"
+                              disabled={saving === m.lineUserId} onClick={() => saveDept(m.lineUserId)}>
+                              {saving === m.lineUserId ? '⏳' : '💾'}
+                            </button>
+                            <button className="btn btn-gray text-xs rounded-lg px-2 py-1"
+                              onClick={() => setEditId(null)}>✕</button>
+                          </div>
+                        ) : (
+                          <button className="btn btn-gray text-xs rounded-lg px-2 py-1 flex-shrink-0"
+                            onClick={() => { setEditId(m.lineUserId); setEditDept(m.department || ''); }}>
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+//  #7 DeptResultsTab — ผลสอบรายหน่วยงาน
+// ════════════════════════════════════════════════════════════
+function DeptResultsTab({ callerUserId }) {
+  const [depts, setDepts]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy]   = useState('attempts'); // attempts | passRate | avgScore
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await apiGet('getResultsByDept', { userId: callerUserId });
+        if (data.success) setDepts(data.depts || []);
+      } catch (_) {}
+      finally { setLoading(false); }
+    })();
+  }, [callerUserId]);
+
+  if (loading) return <Spinner label="กำลังโหลดข้อมูลหน่วยงาน..." />;
+
+  const sorted = [...depts].sort((a, b) => {
+    if (sortBy === 'passRate') return b.passRate - a.passRate;
+    if (sortBy === 'avgScore') return b.avgScore - a.avgScore;
+    return b.attempts - a.attempts;
+  });
+
+  return (
+    <div className="animate-fade space-y-3">
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏢</span>
+            <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>
+              ผลสอบรายหน่วยงาน ({depts.length} หน่วยงาน)
+            </span>
+          </div>
+          <button className="btn btn-gray text-xs rounded-lg px-2 py-1" onClick={() => {
+            setLoading(true);
+            apiGet('getResultsByDept', { userId: callerUserId })
+              .then(d => { if (d.success) setDepts(d.depts || []); })
+              .catch(() => {})
+              .finally(() => setLoading(false));
+          }}>🔄</button>
+        </div>
+
+        {/* Sort buttons */}
+        <div className="flex gap-1 mb-3">
+          {[
+            { val: 'attempts', label: 'ครั้งสอบมาก' },
+            { val: 'passRate', label: '% ผ่านสูง' },
+            { val: 'avgScore', label: 'คะแนนเฉลี่ย' },
+          ].map(o => (
+            <button key={o.val} onClick={() => setSortBy(o.val)}
+              className="btn text-xs rounded-lg px-2.5 py-1"
+              style={{ background: sortBy === o.val ? 'var(--accent)' : 'var(--input-bg)', color: sortBy === o.val ? 'white' : 'var(--text-muted)' }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+
+        {sorted.length === 0 ? (
+          <div className="text-center py-8" style={{ color: 'var(--text-muted)' }}>ยังไม่มีข้อมูลผลสอบ</div>
+        ) : (
+          <div className="space-y-2">
+            {sorted.map((d, i) => (
+              <div key={d.dept} className="rounded-xl p-3"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-semibold text-sm" style={{ color: 'var(--text)' }}>
+                    <span className="mr-1 font-bold" style={{ color: 'var(--text-muted)' }}>{i + 1}.</span>
+                    {d.dept}
+                  </span>
+                  <div className="flex gap-2 text-xs flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                    <span>👥 {d.memberCount} คน</span>
+                    <span>📝 {d.attempts} ครั้ง</span>
+                  </div>
+                </div>
+                {/* pass rate bar */}
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="flex-1 rounded-full h-2" style={{ background: 'var(--card-border)' }}>
+                    <div className="h-2 rounded-full transition-all"
+                      style={{ width: `${d.passRate}%`, background: d.passRate >= 60 ? '#16a34a' : '#ef4444' }} />
+                  </div>
+                  <span className="text-xs font-bold flex-shrink-0"
+                    style={{ color: d.passRate >= 60 ? '#16a34a' : '#ef4444', minWidth: 36, textAlign: 'right' }}>
+                    {d.passRate}%
+                  </span>
+                </div>
+                <div className="flex gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <span>✅ ผ่าน {d.pass}</span>
+                  <span>❌ ไม่ผ่าน {d.fail}</span>
+                  <span>📊 เฉลี่ย {d.avgScore}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+//  #8 FlagsTab — รายงานข้อสอบผิดพลาด
+// ════════════════════════════════════════════════════════════
+function FlagsTab({ callerUserId }) {
+  const [flags, setFlags]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [resolving, setResolving] = useState(null);
+  const [filterStatus, setFilter] = useState('pending');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await apiGet('getFlags', { userId: callerUserId });
+        if (data.success) setFlags(data.flags || []);
+      } catch (_) {}
+      finally { setLoading(false); }
+    })();
+  }, [callerUserId]);
+
+  async function handleResolve(flag, status) {
+    setResolving(flag.flagId);
+    try {
+      const data = await apiPost({ action: 'resolveFlag', callerUserId, flagId: flag.flagId, status });
+      if (data.success) {
+        setFlags(prev => prev.map(f => f.flagId === flag.flagId ? { ...f, status } : f));
+        Swal.fire({ toast: true, position: 'top', timer: 2000, showConfirmButton: false, icon: 'success',
+          title: status === 'resolved' ? '✅ แก้ไขแล้ว' : '🗑 ยกเลิกแล้ว' });
+      }
+    } catch (_) {}
+    finally { setResolving(null); }
+  }
+
+  const REASON_LABELS = {
+    wrong_answer: 'คำตอบไม่ถูกต้อง',
+    unclear:      'ไม่ชัดเจน',
+    typo:         'พิมพ์ผิด',
+    other:        'อื่นๆ',
+  };
+  const STATUS_FILTERS = [
+    { val: 'pending',   label: '⏳ รอดำเนินการ' },
+    { val: 'resolved',  label: '✅ แก้ไขแล้ว' },
+    { val: 'dismissed', label: '🗑 ยกเลิก' },
+    { val: 'all',       label: '📋 ทั้งหมด' },
+  ];
+
+  const filtered = flags.filter(f => filterStatus === 'all' || f.status === filterStatus);
+  const pendingCount = flags.filter(f => f.status === 'pending').length;
+
+  if (loading) return <Spinner label="กำลังโหลด..." />;
+
+  return (
+    <div className="animate-fade space-y-3">
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🚩</span>
+            <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>
+              รายงานข้อสอบ
+              {pendingCount > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full text-xs font-bold"
+                  style={{ background: '#fef3c7', color: '#b45309' }}>
+                  {pendingCount} รายการใหม่
+                </span>
+              )}
+            </span>
+          </div>
+          <button className="btn btn-gray text-xs rounded-lg px-2 py-1" onClick={() => {
+            setLoading(true);
+            apiGet('getFlags', { userId: callerUserId })
+              .then(d => { if (d.success) setFlags(d.flags || []); })
+              .catch(() => {}).finally(() => setLoading(false));
+          }}>🔄</button>
+        </div>
+
+        {/* Filter buttons */}
+        <div className="flex gap-1 mb-3 flex-wrap">
+          {STATUS_FILTERS.map(s => (
+            <button key={s.val} onClick={() => setFilter(s.val)}
+              className="btn text-xs rounded-lg px-2.5 py-1"
+              style={{ background: filterStatus === s.val ? 'var(--accent)' : 'var(--input-bg)', color: filterStatus === s.val ? 'white' : 'var(--text-muted)' }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="text-center py-8" style={{ color: 'var(--text-muted)' }}>
+            {filterStatus === 'pending' ? '🎉 ไม่มีรายการรอดำเนินการ' : 'ไม่มีรายการ'}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(f => (
+              <div key={f.flagId} className="rounded-xl p-3"
+                style={{
+                  background: 'var(--input-bg)',
+                  border: `1.5px solid ${f.status === 'pending' ? '#fbbf24' : 'var(--input-border)'}`,
+                }}>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                        {f.displayName || f.userId}
+                      </span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>· {f.createdAt}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                        style={{
+                          background: f.status === 'pending' ? '#fef3c7' : f.status === 'resolved' ? '#dcfce7' : '#fee2e2',
+                          color:      f.status === 'pending' ? '#92400e' : f.status === 'resolved' ? '#15803d' : '#b91c1c',
+                        }}>
+                        {f.status}
+                      </span>
+                    </div>
+                    <div className="text-sm line-clamp-2 mb-1" style={{ color: 'var(--text)' }}>
+                      📝 {f.questionText}
+                    </div>
+                    <div className="text-xs font-semibold" style={{ color: '#d97706' }}>
+                      🚩 สาเหตุ: {REASON_LABELS[f.reason] || f.reason}
+                    </div>
+                  </div>
+                  {f.status === 'pending' && (
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      <button
+                        className="btn text-xs rounded-lg px-2 py-1 font-semibold"
+                        style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}
+                        disabled={resolving === f.flagId}
+                        onClick={() => handleResolve(f, 'resolved')}>
+                        ✅ แก้แล้ว
+                      </button>
+                      <button
+                        className="btn text-xs rounded-lg px-2 py-1"
+                        style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca' }}
+                        disabled={resolving === f.flagId}
+                        onClick={() => handleResolve(f, 'dismissed')}>
+                        🗑 ยกเลิก
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  LiveMonitor — Real-time exam session monitoring
+// ─────────────────────────────────────────────────────────────
+function LiveMonitor({ callerUserId }) {
+  const [sessions,    setSessions]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [liveCount,   setLiveCount]   = useState(0);
+  const intervalRef = useRef(null);
+
+  function fmt(secs) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = String(secs % 60).padStart(2, '0');
+    return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${s}` : `${m}:${s}`;
+  }
+
+  async function load() {
+    try {
+      const data = await apiGet('getActiveSessions', { userId: callerUserId });
+      if (data.success) {
+        setSessions(data.sessions || []);
+        setLiveCount(data.count || 0);
+        setLastUpdated(new Date());
+      }
+    } catch (_) {}
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+  // หยุด poll เมื่อ tab ไม่ active → ประหยัด API call + battery
+  useVisibleInterval(load, 30_000);
+
+  return (
+    <div className="animate-fade space-y-4">
+      {/* Header */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-bold text-base" style={{ color: 'var(--text)' }}>👁 Real-time Monitoring</h2>
+              {liveCount > 0 && (
+                <span className="flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full font-bold animate-pulse"
+                  style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
+                  LIVE
+                </span>
+              )}
+            </div>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {liveCount > 0 ? `${liveCount} คนกำลังสอบอยู่` : 'ไม่มีใครสอบอยู่ขณะนี้'}
+              {lastUpdated && ` • อัปเดต ${lastUpdated.toLocaleTimeString('th-TH')}`}
+            </p>
+          </div>
+          <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5"
+            onClick={load} disabled={loading}>
+            🔄 Refresh
+          </button>
+        </div>
+        <div className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+          🔄 อัปเดตอัตโนมัติทุก 30 วินาที
+        </div>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="quiz-card no-hover rounded-2xl p-8 flex justify-center">
+          <span className="inline-block w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin"
+            style={{ color: 'var(--accent)' }} />
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="quiz-card no-hover rounded-2xl p-10 text-center">
+          <div className="text-5xl mb-3">💤</div>
+          <div className="font-semibold" style={{ color: 'var(--text)' }}>ไม่มีใครสอบอยู่ขณะนี้</div>
+          <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            หน้านี้จะอัปเดตอัตโนมัติทุก 30 วินาที
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map(s => {
+            const stale = s.lastSeen > 120; // ไม่ได้ heartbeat > 2 นาที
+            return (
+              <div key={s.sessionId} className="quiz-card no-hover rounded-2xl p-4"
+                style={{ borderLeft: `4px solid ${stale ? '#f59e0b' : '#22c55e'}` }}>
+                <div className="flex items-center gap-3">
+                  {/* Avatar */}
+                  <img
+                    src={s.pictureUrl || FALLBACK_AVATAR}
+                    alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                    style={{ border: `2px solid ${stale ? '#f59e0b' : '#22c55e'}` }}
+                    onError={e => { e.target.src = FALLBACK_AVATAR; }}
+                  />
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>
+                      {s.displayName || s.userId}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                      📝 {s.lesson || 'ไม่ระบุวิชา'}
+                    </div>
+                  </div>
+                  {/* Timer */}
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-base font-black" style={{ color: stale ? '#f59e0b' : '#16a34a' }}>
+                      ⏱ {fmt(s.elapsed)}
+                    </div>
+                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {stale
+                        ? `⚠️ ไม่มีสัญญาณ ${Math.floor(s.lastSeen / 60)} นาที`
+                        : `✅ active ${s.lastSeen < 10 ? 'เมื่อสักครู่' : `${s.lastSeen} วิที่แล้ว`}`}
+                    </div>
+                  </div>
+                </div>
+                {/* Started at */}
+                <div className="mt-2 pt-2 text-xs" style={{ borderTop: '1px solid var(--input-border)', color: 'var(--text-muted)' }}>
+                  🕐 เริ่มสอบ {s.startTime}
+                  {s.setId && <span className="ml-2">📦 ชุดข้อสอบ</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 //  AdminScreen (Main)
 // ─────────────────────────────────────────────────────────────
 function AdminScreenInner() {
   const { navigate, profile } = useApp();
   const [tab, setTab]         = useState('stats');
+  const [pendingMsgCount, setPendingMsgCount] = useState(0);
   const [stats, setStats]     = useState(null);
   const [members, setMembers] = useState([]);
   const [results, setResults] = useState([]);
@@ -779,10 +1672,13 @@ function AdminScreenInner() {
   const [tgTesting, setTgTesting]     = useState(false);
   const [tgFinding, setTgFinding]     = useState(false);
   const [tgChats, setTgChats]         = useState([]);
-  const [memberFilter, setMemberFilter]   = useState('');
-  const [memberSearch, setMemberSearch]   = useState('');
-  const [richMenuFilter, setRichMenuFilter] = useState('');
-  const [resultSearch, setResultSearch] = useState('');
+  const [memberFilter, setMemberFilter]       = useState('');
+  const [memberSearch, setMemberSearch]       = useState('');
+  const [memberSearchDebounced, setMemberSearchDebounced] = useState(''); // #10 debounced
+  const [memberPage, setMemberPage]           = useState(0); // pagination
+  const [richMenuFilter, setRichMenuFilter]   = useState('');
+  const [resultSearch, setResultSearch]       = useState('');
+  const MEMBER_PAGE_SIZE = 25;
   const [triggerStatus, setTriggerStatus] = useState(null);
   const [lastSyncTime, setLastSyncTime]   = useState('');
   const [selectedMember, setSelectedMember] = useState(null);
@@ -800,12 +1696,56 @@ function AdminScreenInner() {
   const [bulkSearch,   setBulkSearch]       = useState('');         // ค้นหาชื่อ/LINE ID
   const [archiving, setArchiving]           = useState(false);
   const [exporting, setExporting]           = useState(false);      // export CSV
+  // Batch member actions
+  const [batchSelecting, setBatchSelecting]     = useState(false);
+  const [batchSelected, setBatchSelected]       = useState(new Set());
+  const [batchProcessing, setBatchProcessing]   = useState(false);
+  // System Health
+  const [healthData, setHealthData]             = useState(null);
+  const [healthLoading, setHealthLoading]       = useState(false);
+  // AI Generator
+  const [showAiGen, setShowAiGen]           = useState(false);
+  const [subjects, setSubjects]             = useState([]);
+  // LINE Token
+  const [lineTokenStatus, setLineTokenStatus] = useState(null);
+  const [lineTokenInput, setLineTokenInput]   = useState('');
+
+  // Question Bank Schedule
+  const [qbSettings, setQbSettings] = useState(null);
+  const [qbEnabled, setQbEnabled]   = useState(false);
+  const [qbStart, setQbStart]       = useState('');
+  const [qbEnd, setQbEnd]           = useState('');
+  const [qbNumQ, setQbNumQ]         = useState(20);
+  const [qbSaving, setQbSaving]     = useState(false);
+
+  // Individual Analytics
+  const [analyticsMembers, setAnalyticsMembers] = useState(null);
+  const [analyticsTarget, setAnalyticsTarget]   = useState(null);
+  const [analyticsData, setAnalyticsData]       = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsSearch, setAnalyticsSearch]   = useState('');
+  const [researchExporting, setResearchExporting] = useState(false);
+  const [lineTokenSaving, setLineTokenSaving] = useState(false);
+  // Assignment Tracking
+  const [assignOverview, setAssignOverview]   = useState(null);
+  const [assignLoading, setAssignLoading]     = useState(false);
+  const [assignDetail, setAssignDetail]       = useState(null);
+  const [assignDetailLoading, setAssignDetailLoading] = useState(false);
 
   // ── mount: 2 parallel calls แทน 6 ──────────────────────────
   useEffect(() => {
     Promise.all([loadInitAdmin(), loadMembers(), loadAllRichMenus(), loadCourses()]);
     // eslint-disable-next-line
   }, []);
+
+  // ── #10 debounce memberSearch 300ms ──────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setMemberSearchDebounced(memberSearch), 300);
+    return () => clearTimeout(t);
+  }, [memberSearch]);
+
+  // ── reset member page เมื่อ filter/search เปลี่ยน ────────
+  useEffect(() => { setMemberPage(0); }, [memberFilter, memberSearchDebounced, richMenuFilter]);
 
   // batch: stats + trigger + rmSync + tg  (1 GAS call)
   async function loadInitAdmin() {
@@ -829,6 +1769,16 @@ function AdminScreenInner() {
       if (data.success) setStats(data);
     } catch (_) {}
   }
+
+  // poll pending messages count ทุก 30 วินาที (หยุดเมื่อ tab ไม่ active)
+  const checkInbox = async () => {
+    try {
+      const d = await apiGet('getInbox', { userId: profile.userId, status: 'pending', page: 1, size: 1 });
+      if (d.success) setPendingMsgCount(d.counts?.pending || 0);
+    } catch(_) {}
+  };
+  useEffect(() => { checkInbox(); /* eslint-disable-next-line */ }, []);
+  useVisibleInterval(checkInbox, 30_000);
 
   async function loadMembers() {
     setLoading(true);
@@ -915,6 +1865,197 @@ function AdminScreenInner() {
       const data = await apiGetCached('getCourses', { userId: profile.userId }, 5 * 60_000);
       if (data.success) setCourses(data.courses || []);
     } catch (_) {}
+  }
+
+  // ── Batch Member Operations ─────────────────────────
+  async function handleBatchStatus(newStatus) {
+    const ids = [...batchSelected];
+    if (!ids.length) return;
+    const labels = { active: 'อนุมัติ', inactive: 'ระงับ', pending: 'ตั้งเป็นรออนุมัติ' };
+    const r = await Swal.fire({
+      title: `${labels[newStatus]} ${ids.length} คน?`,
+      icon: 'question', showCancelButton: true, confirmButtonText: 'ยืนยัน', cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: newStatus === 'active' ? '#16a34a' : newStatus === 'inactive' ? '#ef4444' : '#d97706',
+    });
+    if (!r.isConfirmed) return;
+    setBatchProcessing(true);
+    try {
+      const data = await apiPost({ action: 'bulkUpdateMembers', callerUserId: profile.userId, userIds: ids, newStatus });
+      if (!data.success) throw new Error(data.message);
+      lsInvalidate('getMembersWithProfiles');
+      await loadMembers();
+      setBatchSelected(new Set());
+      setBatchSelecting(false);
+      Swal.fire({ icon: 'success', title: `${labels[newStatus]}สำเร็จ ${data.updated} คน`, timer: 1800, showConfirmButton: false });
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setBatchProcessing(false); }
+  }
+
+  async function handleBatchRole(newRole) {
+    const ids = [...batchSelected];
+    if (!ids.length) return;
+    const label = newRole === 'teacher' ? '🎓 ครูผู้สอน' : newRole === 'admin' ? '👑 Admin' : '👤 สมาชิกทั่วไป';
+    const r = await Swal.fire({ title: `เปลี่ยน Role เป็น "${label}" — ${ids.length} คน?`, icon: 'question', showCancelButton: true, confirmButtonText: 'ยืนยัน', cancelButtonText: 'ยกเลิก' });
+    if (!r.isConfirmed) return;
+    setBatchProcessing(true);
+    try {
+      const data = await apiPost({ action: 'bulkUpdateMembers', callerUserId: profile.userId, userIds: ids, newRole });
+      if (!data.success) throw new Error(data.message);
+      lsInvalidate('getMembersWithProfiles');
+      await loadMembers();
+      setBatchSelected(new Set());
+      setBatchSelecting(false);
+      Swal.fire({ icon: 'success', title: `เปลี่ยน Role สำเร็จ ${data.updated} คน`, timer: 1800, showConfirmButton: false });
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setBatchProcessing(false); }
+  }
+
+  // ── System Health ─────────────────────────────────
+  async function loadHealth() {
+    setHealthLoading(true);
+    try {
+      const data = await apiGet('getSystemHealth', { userId: profile.userId });
+      if (data.success) setHealthData(data);
+    } catch (_) {}
+    finally { setHealthLoading(false); }
+  }
+
+  // ── Subjects (for AI Generator) ────────────────────────
+  async function loadSubjects() {
+    try {
+      const data = await apiGetCached('getSubjects', {}, 10 * 60_000);
+      if (data.success) setSubjects(data.subjects || []);
+    } catch (_) {}
+  }
+
+  // ── LINE Token Management ─────────────────────────────
+  async function loadLineTokenStatus() {
+    try {
+      const data = await apiGet('getLineTokenStatus', { userId: profile.userId });
+      if (data.success) setLineTokenStatus(data);
+    } catch (_) {}
+  }
+
+  async function saveLineToken() {
+    if (!lineTokenInput.trim()) return;
+    setLineTokenSaving(true);
+    try {
+      const data = await apiPost({ action: 'setLineToken', callerUserId: profile.userId, token: lineTokenInput.trim() });
+      if (!data.success) throw new Error(data.message);
+      setLineTokenInput('');
+      await loadLineTokenStatus();
+      Swal.fire({ icon: 'success', title: 'บันทึก LINE Token สำเร็จ!', timer: 1500, showConfirmButton: false });
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setLineTokenSaving(false); }
+  }
+
+  // ── Question Bank Schedule ────────────────────────────
+  async function loadQBankSettings() {
+    try {
+      const data = await apiGet('getQuestionBankSettings', { userId: profile.userId });
+      if (data.success) {
+        setQbSettings(data);
+        setQbEnabled(!!data.enabled);
+        setQbStart(data.start || '');
+        setQbEnd(data.end || '');
+        setQbNumQ(data.numQ || 20);
+      }
+    } catch (_) {}
+  }
+
+  async function saveQBankSettings() {
+    setQbSaving(true);
+    try {
+      const data = await apiPost({
+        action: 'setQuestionBankSettings',
+        callerUserId: profile.userId,
+        enabled: qbEnabled,
+        start: qbStart,
+        end: qbEnd,
+        numQ: qbNumQ,
+      });
+      if (!data.success) throw new Error(data.message);
+      setQbSettings(data);
+      Swal.fire({ icon: 'success', title: 'บันทึกตั้งค่าคลังข้อสอบสำเร็จ!', timer: 1500, showConfirmButton: false });
+    } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+    finally { setQbSaving(false); }
+  }
+
+  // ── Individual Analytics ──────────────────────────────
+  async function loadAnalyticsMembers() {
+    try {
+      const data = await apiGet('getMembers', { userId: profile.userId });
+      if (data.success) setAnalyticsMembers(data.members || []);
+    } catch (_) {}
+  }
+
+  async function loadIndividualAnalytics(targetUserId) {
+    setAnalyticsLoading(true);
+    setAnalyticsData(null);
+    setAnalyticsTarget(targetUserId);
+    try {
+      const data = await apiGet('getIndividualAnalytics', { callerUserId: profile.userId, targetUserId });
+      if (data.success) setAnalyticsData(data);
+      else Swal.fire('Error', data.message, 'error');
+    } catch (e) { Swal.fire('Error', e.message, 'error'); }
+    finally { setAnalyticsLoading(false); }
+  }
+
+  async function exportResearchData() {
+    setResearchExporting(true);
+    try {
+      const data = await apiGet('getResearchExport', { callerUserId: profile.userId });
+      if (!data.success) throw new Error(data.message);
+      // Download as JSON
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `research_export_${new Date().toISOString().slice(0,10)}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      Swal.fire({ icon: 'success', title: 'Export สำเร็จ!', text: `${data.totalUsers} users, ${data.totalAttempts} attempts`, timer: 2000, showConfirmButton: false });
+    } catch (e) { Swal.fire('Error', e.message, 'error'); }
+    finally { setResearchExporting(false); }
+  }
+
+  async function exportResearchCSV() {
+    setResearchExporting(true);
+    try {
+      const data = await apiGet('getResearchExport', { callerUserId: profile.userId });
+      if (!data.success) throw new Error(data.message);
+      // Convert results to CSV
+      const headers = ['anonymousId','date','subject','score','total','pct','pass','timeUsedSec','setId'];
+      const rows = [headers.join(',')];
+      (data.results||[]).forEach(r => {
+        rows.push(headers.map(h => JSON.stringify(r[h]??'')).join(','));
+      });
+      const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `research_results_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+      Swal.fire({ icon: 'success', title: 'Export CSV สำเร็จ!', timer: 1500, showConfirmButton: false });
+    } catch (e) { Swal.fire('Error', e.message, 'error'); }
+    finally { setResearchExporting(false); }
+  }
+
+  // ── Assignment Overview ───────────────────────────────
+  async function loadAssignOverview() {
+    setAssignLoading(true);
+    try {
+      const data = await apiGet('getAdminAssignmentOverview', { userId: profile.userId });
+      if (data.success) setAssignOverview(data);
+    } catch (_) {}
+    finally { setAssignLoading(false); }
+  }
+
+  async function loadAssignDetail(setId) {
+    setAssignDetailLoading(true);
+    setAssignDetail(null);
+    try {
+      const data = await apiGet('getAssignmentTracking', { userId: profile.userId, setId });
+      if (data.success) setAssignDetail(data);
+    } catch (_) {}
+    finally { setAssignDetailLoading(false); }
   }
 
   async function loadRmSyncStatus() {
@@ -1131,6 +2272,36 @@ function AdminScreenInner() {
     } finally { setTgTesting(false); }
   }
 
+  async function setupTgWebhook() {
+    const conf = await Swal.fire({
+      title: 'เปิดใช้ Telegram Reply?',
+      html:
+        'หลังเปิดแล้ว Admin จะสามารถ <b>ตอบข้อความ user ผ่าน Telegram</b> ได้<br><br>'
+        + '<b>วิธีตอบ:</b><br>'
+        + '1. กด <b>Reply</b> ข้อความที่ bot ส่งมา (มี #MSGxxx)<br>'
+        + '2. พิมพ์คำตอบ → กดส่ง<br>'
+        + '3. ระบบจะ forward ไปให้ user ทันที',
+      icon: 'question', showCancelButton: true,
+      confirmButtonText: 'เปิดใช้', cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#0088cc',
+    });
+    if (!conf.isConfirmed) return;
+
+    try {
+      const data = await apiPost({ action: 'setupTelegramWebhook', callerUserId: profile.userId });
+      if (!data.success) throw new Error(data.message);
+      await Swal.fire({
+        icon: 'success',
+        title: '✅ เปิดใช้สำเร็จ!',
+        html:
+          'Webhook URL ตั้งเรียบร้อย<br><br>'
+          + '<b>ทดสอบ:</b> ส่งข้อความใน LINE → bot จะแจ้งใน Telegram → reply ข้อความนั้นเพื่อตอบกลับ',
+      });
+    } catch (e) {
+      Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+    }
+  }
+
   // เมื่อแก้ไขข้อมูลจาก Modal → อัปเดต local state
   function handleMemberUpdated(updated) {
     setMembers(prev => prev.map(m => m.lineUserId === updated.lineUserId ? { ...m, ...updated } : m));
@@ -1143,13 +2314,24 @@ function AdminScreenInner() {
   }
 
   const TABS = [
-    { key: 'stats',      label: '📊 สถิติ' },
-    { key: 'members',    label: '👥 สมาชิก' },
-    { key: 'dept',       label: '🏢 หน่วยงาน' },
-    { key: 'richmenu',   label: '🎛 Rich Menu' },
-    { key: 'results',    label: '📋 ผลสอบ' },
-    { key: 'courses',    label: '📚 หลักสูตร' },
-    { key: 'settings',   label: '⚙️ ตั้งค่า' },
+    { key: 'live',        label: '👁 Live' },
+    { key: 'inbox',       label: '💬 ข้อความ' },
+    { key: 'stats',       label: '📊 สถิติ' },
+    { key: 'members',     label: '👥 สมาชิก' },
+    { key: 'dept',        label: '🏢 หน่วยงาน' },
+    { key: 'deptResults', label: '📈 ผลหน่วยงาน' },
+    { key: 'qstats',      label: '📉 ข้อยาก' },
+    { key: 'flags',       label: `🚩 Flags` },
+    { key: 'ai',          label: '🤖 AI สร้างข้อสอบ' },
+    { key: 'assignments', label: '📋 มอบหมาย' },
+    { key: 'richmenu',    label: '🎛 Rich Menu' },
+    { key: 'results',     label: '📋 ผลสอบ' },
+    { key: 'courses',     label: '📚 หลักสูตร' },
+    { key: 'lessons',     label: '📖 บทเรียน' },
+    { key: 'subjects',    label: '📖 รายวิชา' },
+    { key: 'analytics',   label: '🔬 วิเคราะห์' },
+    { key: 'health',      label: '🩺 ระบบ' },
+    { key: 'settings',    label: '⚙️ ตั้งค่า' },
   ];
 
   // filter + search
@@ -1160,13 +2342,18 @@ function AdminScreenInner() {
       : richMenuFilter
         ? m.richMenuId === richMenuFilter
         : true)
-    .filter(m => memberSearch
+    .filter(m => memberSearchDebounced
       ? (m.fullName + m.displayName + m.email + m.studentId + m.lineUserId + (m.department||''))
-          .toLowerCase().includes(memberSearch.toLowerCase())
+          .toLowerCase().includes(memberSearchDebounced.toLowerCase())
       : true);
 
+  // pagination สมาชิก
+  const pagedMembers = filteredMembers.slice(memberPage * MEMBER_PAGE_SIZE, (memberPage + 1) * MEMBER_PAGE_SIZE);
+
   const filteredResults = resultSearch
-    ? results.filter(r => r.name.includes(resultSearch) || r.lesson.includes(resultSearch))
+    ? results.filter(r =>
+        r.name.toLowerCase().includes(resultSearch.toLowerCase()) ||
+        r.lesson.toLowerCase().includes(resultSearch.toLowerCase()))
     : results;
 
   return (
@@ -1184,40 +2371,312 @@ function AdminScreenInner() {
         />
       )}
 
-      {/* Header */}
-      <div className="quiz-card no-hover rounded-2xl p-3 sm:p-4 mb-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h1 className="text-base sm:text-lg font-bold" style={{ color: 'var(--text)' }}>⚙️ จัดการระบบ</h1>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Admin Panel</p>
+      {/* ── Header ────────────────────────────────────────────── */}
+      <div className="rounded-2xl mb-4 overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, #1e40af 0%, #1e293b 100%)',
+          boxShadow: '0 4px 24px rgba(30,64,175,0.30)',
+        }}>
+        <div className="p-4 sm:p-5">
+
+          {/* Title row */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight" style={{ color: '#f8fafc' }}>
+                ⚙️ Admin Panel
+              </h1>
+              <p className="text-xs mt-0.5" style={{ color: '#93c5fd' }}>
+                จัดการระบบ · สมาชิก · ข้อสอบ
+              </p>
+            </div>
+            <button
+              className="text-xs rounded-xl px-3 py-2 font-semibold"
+              style={{
+                background: 'rgba(255,255,255,0.12)',
+                color: '#f8fafc',
+                border: '1px solid rgba(255,255,255,0.22)',
+              }}
+              onClick={() => navigate('setup')}>
+              ← กลับ
+            </button>
           </div>
-          <div className="flex gap-2 flex-wrap justify-end flex-shrink-0">
-            <button className="btn text-xs rounded-lg px-3 py-1.5"
-              style={{ background: '#f59e0b', color: 'white' }}
-              onClick={() => navigate('examSetManager')}>📦 ชุดข้อสอบ</button>
-            <button className="btn btn-primary text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('questionManager')}>📚 ข้อสอบ</button>
-            <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
+
+          {/* Quick-action cards */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              className="flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all active:scale-95"
+              style={{
+                background: '#f59e0b',
+                color: 'white',
+                boxShadow: '0 2px 10px rgba(245,158,11,0.45)',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+              onClick={() => navigate('examSetManager')}>
+              <span style={{ fontSize: 28, lineHeight: 1 }}>📦</span>
+              <div>
+                <div className="text-sm font-bold">ชุดข้อสอบ</div>
+                <div className="text-xs" style={{ opacity: 0.85 }}>สร้าง / จัดการชุดสอบ</div>
+              </div>
+            </button>
+            <button
+              className="flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all active:scale-95"
+              style={{
+                background: '#7c3aed',
+                color: 'white',
+                boxShadow: '0 2px 10px rgba(124,58,237,0.45)',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+              onClick={() => navigate('questionManager')}>
+              <span style={{ fontSize: 28, lineHeight: 1 }}>📚</span>
+              <div>
+                <div className="text-sm font-bold">ข้อสอบ</div>
+                <div className="text-xs" style={{ opacity: 0.85 }}>เพิ่ม / แก้ไขข้อสอบ</div>
+              </div>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4">
-        {TABS.map(t => (
-          <button key={t.key} className="flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all"
-            style={{
-              background: tab === t.key ? 'var(--accent)' : 'var(--card)',
-              color:      tab === t.key ? 'white' : 'var(--text-muted)',
-              border:     `1.5px solid ${tab === t.key ? 'var(--accent)' : 'var(--card-border)'}`,
-            }}
-            onClick={() => { setTab(t.key); if (t.key === 'results' && results.length === 0) loadResults(0); }}
-          >{t.label}</button>
-        ))}
+      {/* ── Tab Bar (scrollable) ──────────────────────────────── */}
+      <div className="mb-4"
+        style={{ overflowX: 'auto', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+        <style>{`.admin-tabs::-webkit-scrollbar{display:none}`}</style>
+        <div className="admin-tabs flex gap-2" style={{ minWidth: 'max-content', paddingBottom: 2 }}>
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              className="flex-shrink-0 rounded-xl font-semibold transition-all whitespace-nowrap"
+              style={{
+                padding: '9px 18px',
+                fontSize: 13,
+                background: tab === t.key ? 'var(--accent)' : 'var(--card)',
+                color:      tab === t.key ? 'white' : 'var(--text-muted)',
+                border:     `1.5px solid ${tab === t.key ? 'var(--accent)' : 'var(--card-border)'}`,
+                boxShadow:  tab === t.key ? '0 2px 10px rgba(99,102,241,0.30)' : 'none',
+                transform:  tab === t.key ? 'translateY(-1px)' : 'none',
+                cursor: 'pointer',
+              }}
+              onClick={() => {
+                setTab(t.key);
+                if (t.key === 'results' && results.length === 0) loadResults(0);
+                if (t.key === 'ai' && subjects.length === 0) loadSubjects();
+                if (t.key === 'assignments' && !assignOverview) loadAssignOverview();
+                if (t.key === 'settings' && !lineTokenStatus) loadLineTokenStatus();
+                if (t.key === 'settings' && !qbSettings) loadQBankSettings();
+                if (t.key === 'analytics' && !analyticsMembers) loadAnalyticsMembers();
+                if (t.key === 'health' && !healthData) loadHealth();
+              }}
+            >
+              {t.label}
+              {t.key === 'inbox' && pendingMsgCount > 0 && (
+                <span style={{
+                  marginLeft: 4, background: '#ef4444', color: 'white',
+                  borderRadius: 99, padding: '0 5px', fontSize: 9, fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle',
+                }}>{pendingMsgCount > 99 ? '99+' : pendingMsgCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* ── Live Tab ──────────────────────────────── */}
+      {tab === 'live' && <LiveMonitor callerUserId={profile.userId} />}
 
       {/* ── Stats Tab ─────────────────────────────── */}
       {tab === 'stats' && (
         <StatsCharts stats={stats} loading={!stats && loading} onRefresh={loadStats} />
+      )}
+
+      {/* ── AI Generator Tab ─────────────────────────── */}
+      {tab === 'ai' && (
+        <div className="animate-fade">
+          {showAiGen ? (
+            <GeminiQuizGenerator
+              profile={profile}
+              subjects={subjects}
+              onClose={() => setShowAiGen(false)}
+              onSaved={() => { setShowAiGen(false); Swal.fire({ icon: 'success', title: 'บันทึกข้อสอบ AI สำเร็จ!', timer: 1800, showConfirmButton: false }); }}
+            />
+          ) : (
+            <div className="space-y-4">
+              {/* Hero card */}
+              <div className="quiz-card no-hover rounded-2xl overflow-hidden">
+                <div className="p-5" style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' }}>
+                  <div className="text-center mb-4">
+                    <div style={{ fontSize: 48 }}>🤖</div>
+                    <h2 className="text-xl font-black mt-2" style={{ color: 'white' }}>AI สร้างข้อสอบ</h2>
+                    <p className="text-xs mt-1" style={{ color: '#c4b5fd' }}>ใช้ Google Gemini AI สร้างข้อสอบอัตโนมัติ ปรับแก้ได้ก่อนบันทึก</p>
+                  </div>
+                  <button
+                    className="btn w-full rounded-xl py-3.5 text-sm font-bold"
+                    style={{ background: 'white', color: '#4f46e5', border: 'none', cursor: 'pointer' }}
+                    onClick={() => setShowAiGen(true)}>
+                    ✨ เริ่มสร้างข้อสอบด้วย AI
+                  </button>
+                </div>
+              </div>
+
+              {/* How it works */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📖 วิธีใช้งาน</div>
+                <div className="space-y-2.5">
+                  {[
+                    { icon: '🔑', title: 'ตั้งค่า API Key', desc: 'ขอ Gemini API Key ฟรีจาก aistudio.google.com' },
+                    { icon: '📝', title: 'กำหนดหัวข้อ', desc: 'เลือกวิชา ระบุเนื้อหา จำนวนข้อ ระดับความยาก' },
+                    { icon: '🤖', title: 'AI สร้างร่าง', desc: 'Gemini สร้างข้อสอบ 4 ตัวเลือก พร้อมเฉลยและอธิบาย' },
+                    { icon: '✏️', title: 'ตรวจสอบ & แก้ไข', desc: 'อ่านทบทวน แก้ไข เลือกเฉพาะข้อที่ต้องการ' },
+                    { icon: '💾', title: 'บันทึกเข้าระบบ', desc: 'ข้อสอบจะเข้า Questions sheet พร้อมใช้งานทันที' },
+                  ].map(({ icon, title, desc }) => (
+                    <div key={title} className="flex items-start gap-3 p-2.5 rounded-xl"
+                      style={{ background: 'var(--input-bg)' }}>
+                      <span className="text-xl flex-shrink-0">{icon}</span>
+                      <div>
+                        <div className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{title}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Assignments Tab ───────────────────────────── */}
+      {tab === 'assignments' && (
+        <div className="animate-fade">
+          {assignDetail ? (
+            /* ── Detail View ── */
+            <div>
+              <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 mb-3"
+                onClick={() => setAssignDetail(null)}>← กลับ</button>
+              <div className="quiz-card no-hover rounded-2xl p-4 mb-3">
+                <h3 className="text-base font-bold mb-1" style={{ color: 'var(--text)' }}>
+                  📋 {assignDetail.setName}
+                </h3>
+                <div className="flex gap-3 flex-wrap">
+                  {[
+                    { label: 'มอบหมาย', val: assignDetail.totalAssigned, bg: '#dbeafe', c: '#1d4ed8' },
+                    { label: 'ทำแล้ว', val: assignDetail.completed, bg: '#fef3c7', c: '#92400e' },
+                    { label: 'ผ่าน', val: assignDetail.passed, bg: '#dcfce7', c: '#15803d' },
+                    { label: 'รอ', val: assignDetail.totalAssigned - assignDetail.completed, bg: '#fee2e2', c: '#b91c1c' },
+                  ].map(s => (
+                    <div key={s.label} className="text-center px-3 py-2 rounded-xl" style={{ background: s.bg }}>
+                      <div className="text-lg font-black" style={{ color: s.c }}>{s.val}</div>
+                      <div className="text-xs font-semibold" style={{ color: s.c }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {assignDetailLoading ? <Spinner label="กำลังโหลด..." /> : (
+                <div className="space-y-2">
+                  {(assignDetail.tracking || []).map(t => {
+                    const statusConf = t.status === 'passed'
+                      ? { label: '✅ ผ่าน', bg: '#dcfce7', c: '#15803d' }
+                      : t.status === 'attempted'
+                        ? { label: '❌ ยังไม่ผ่าน', bg: '#fee2e2', c: '#b91c1c' }
+                        : { label: '⏳ ยังไม่สอบ', bg: '#f3f4f6', c: '#6b7280' };
+                    return (
+                      <div key={t.userId} className="quiz-card no-hover rounded-xl p-3 flex items-center gap-3">
+                        {t.pictureUrl
+                          ? <img src={t.pictureUrl} loading="lazy" decoding="async" className="w-9 h-9 rounded-full" style={{ objectFit: 'cover' }} />
+                          : <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm"
+                              style={{ background: 'var(--input-bg)', color: 'var(--text-muted)' }}>👤</div>}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{t.displayName}</div>
+                          {t.department && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{t.department}</div>}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                            style={{ background: statusConf.bg, color: statusConf.c }}>{statusConf.label}</span>
+                          {t.attempts > 0 && (
+                            <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                              {t.attempts} ครั้ง · {t.bestPct}%
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Overview ── */
+            <div>
+              {assignLoading ? <Spinner label="กำลังโหลด..." /> : !assignOverview ? (
+                <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>ไม่พบข้อมูล</div>
+              ) : (
+                <>
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                    {[
+                      { icon: '📋', label: 'ชุดที่มอบหมาย', val: assignOverview.summary.totalSets, bg: '#eff6ff', c: '#1d4ed8' },
+                      { icon: '👥', label: 'คนที่ถูกมอบหมาย', val: assignOverview.summary.totalAssigned, bg: '#f0fdf4', c: '#15803d' },
+                      { icon: '✅', label: 'ผ่านแล้ว', val: assignOverview.summary.totalPassed, bg: '#dcfce7', c: '#16a34a' },
+                      { icon: '⏳', label: 'ยังไม่ทำ', val: assignOverview.summary.totalPending, bg: '#fef3c7', c: '#92400e' },
+                    ].map(s => (
+                      <div key={s.label} className="quiz-card no-hover rounded-xl p-3 text-center" style={{ background: s.bg }}>
+                        <div className="text-xl mb-1">{s.icon}</div>
+                        <div className="text-xl font-black" style={{ color: s.c }}>{s.val}</div>
+                        <div className="text-xs font-semibold" style={{ color: s.c }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>ชุดข้อสอบที่มอบหมาย</span>
+                    <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={loadAssignOverview}>🔄</button>
+                  </div>
+
+                  {assignOverview.sets.length === 0 ? (
+                    <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+                      <div className="text-3xl mb-2">📭</div>
+                      ยังไม่มีชุดข้อสอบที่มอบหมาย
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {assignOverview.sets.map(s => {
+                        const pctDone = s.assigned > 0 ? Math.round((s.passed / s.assigned) * 100) : 0;
+                        return (
+                          <div key={s.setId}
+                            className="quiz-card no-hover rounded-xl p-3 cursor-pointer transition-all active:scale-[0.98]"
+                            onClick={() => loadAssignDetail(s.setId)}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-bold truncate" style={{ color: 'var(--text)', flex: 1 }}>{s.setName}</span>
+                              <span className="text-xs font-semibold ml-2 flex-shrink-0" style={{ color: 'var(--accent)' }}>
+                                ดูรายละเอียด →
+                              </span>
+                            </div>
+                            <div className="flex gap-3 mb-2 text-xs">
+                              <span style={{ color: '#1d4ed8' }}>👥 {s.assigned} คน</span>
+                              <span style={{ color: '#16a34a' }}>✅ ผ่าน {s.passed}</span>
+                              <span style={{ color: '#d97706' }}>📝 ทำแล้ว {s.completed}</span>
+                              <span style={{ color: '#b91c1c' }}>⏳ รอ {s.pending}</span>
+                            </div>
+                            <div style={{ background: 'var(--progress-trk)', borderRadius: 999, height: 6, overflow: 'hidden' }}>
+                              <div style={{ width: `${pctDone}%`, height: '100%', borderRadius: 999,
+                                background: pctDone >= 80 ? '#22c55e' : pctDone >= 50 ? '#f59e0b' : '#ef4444',
+                                transition: 'width .3s',
+                              }} />
+                            </div>
+                            <div className="text-right text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                              อัตราผ่าน {s.passRate}%
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Members Tab ───────────────────────────── */}
@@ -1227,9 +2686,21 @@ function AdminScreenInner() {
           {/* Filter / Search / Sync bar */}
           <div className="quiz-card no-hover rounded-2xl p-3 mb-3 space-y-2">
 
-            {/* ช่องค้นหา */}
-            <input className="themed-input w-full" placeholder="🔍 ค้นหา ชื่อ / อีเมล / รหัส..."
-              value={memberSearch} onChange={e => setMemberSearch(e.target.value)} />
+            {/* ช่องค้นหา #10 */}
+            <div className="relative">
+              <input className="themed-input w-full pr-20" placeholder="🔍 ค้นหา ชื่อ / อีเมล / รหัส / หน่วยงาน..."
+                value={memberSearch} onChange={e => setMemberSearch(e.target.value)} />
+              {memberSearch && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {filteredMembers.length} คน
+                  </span>
+                  <button onClick={() => setMemberSearch('')}
+                    className="text-xs rounded-full w-4 h-4 flex items-center justify-center"
+                    style={{ background: 'var(--text-muted)', color: 'white' }}>✕</button>
+                </div>
+              )}
+            </div>
 
             {/* Status filter */}
             <div className="flex gap-2 flex-wrap">
@@ -1501,8 +2972,9 @@ function AdminScreenInner() {
                               background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)',
                             }}>
                             {/* avatar */}
-                            <img src={m.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
-                              alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                            <img src={m.pictureUrl || FALLBACK_AVATAR}
+                              alt="" loading="lazy" decoding="async"
+                              className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                             {/* name block */}
                             <div className="min-w-0">
                               <div className="font-semibold truncate" style={{ color: 'var(--text)' }}>
@@ -1548,21 +3020,107 @@ function AdminScreenInner() {
             );
           })()}
 
+          {/* ── Batch Action Bar ────────── */}
+          {(() => {
+            const pendingCount = members.filter(m => m.status === 'pending').length;
+            return (
+              <div className="quiz-card no-hover rounded-2xl p-3 mb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Toggle batch mode */}
+                  <button className="btn text-xs rounded-lg px-3 py-1.5"
+                    style={{ background: batchSelecting ? 'var(--accent)' : 'var(--input-bg)', color: batchSelecting ? 'white' : 'var(--text-muted)' }}
+                    onClick={() => { setBatchSelecting(!batchSelecting); setBatchSelected(new Set()); }}>
+                    {batchSelecting ? '✕ ยกเลิก' : '☑ เลือกหลายคน'}
+                  </button>
+
+                  {/* Quick: Approve all pending */}
+                  {!batchSelecting && pendingCount > 0 && (
+                    <button className="btn text-xs rounded-lg px-3 py-1.5"
+                      style={{ background: '#dcfce7', color: '#15803d' }}
+                      onClick={async () => {
+                        const ids = members.filter(m => m.status === 'pending').map(m => m.lineUserId);
+                        setBatchSelected(new Set(ids));
+                        const r = await Swal.fire({ title: `อนุมัติสมาชิกรอดำเนินการ ${ids.length} คน?`, icon: 'question', showCancelButton: true, confirmButtonText: 'อนุมัติทั้งหมด', cancelButtonText: 'ยกเลิก', confirmButtonColor: '#16a34a' });
+                        if (!r.isConfirmed) { setBatchSelected(new Set()); return; }
+                        setBatchProcessing(true);
+                        try {
+                          const data = await apiPost({ action: 'bulkUpdateMembers', callerUserId: profile.userId, userIds: ids, newStatus: 'active' });
+                          if (!data.success) throw new Error(data.message);
+                          lsInvalidate('getMembersWithProfiles');
+                          await loadMembers();
+                          setBatchSelected(new Set());
+                          Swal.fire({ icon: 'success', title: `อนุมัติสำเร็จ ${data.updated} คน`, timer: 1800, showConfirmButton: false });
+                        } catch (e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
+                        finally { setBatchProcessing(false); }
+                      }}
+                      disabled={batchProcessing}>
+                      ✅ อนุมัติทั้งหมด ({pendingCount})
+                    </button>
+                  )}
+
+                  {/* Batch actions when selecting */}
+                  {batchSelecting && batchSelected.size > 0 && (
+                    <>
+                      <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>เลือก {batchSelected.size} คน</span>
+                      <button className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: '#dcfce7', color: '#15803d' }}
+                        onClick={() => handleBatchStatus('active')} disabled={batchProcessing}>✅ อนุมัติ</button>
+                      <button className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: '#fee2e2', color: '#b91c1c' }}
+                        onClick={() => handleBatchStatus('inactive')} disabled={batchProcessing}>🚫 ระงับ</button>
+                      <button className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: '#ede9fe', color: '#7c3aed' }}
+                        onClick={() => handleBatchRole('teacher')} disabled={batchProcessing}>🎓 ตั้งเป็นครู</button>
+                      <button className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: '#fef3c7', color: '#92400e' }}
+                        onClick={() => handleBatchRole('')} disabled={batchProcessing}>👤 ตั้งเป็นสมาชิก</button>
+                    </>
+                  )}
+
+                  {/* Select all visible */}
+                  {batchSelecting && (
+                    <button className="btn btn-gray text-xs rounded-lg px-2.5 py-1.5 ml-auto"
+                      onClick={() => {
+                        if (batchSelected.size === pagedMembers.length) setBatchSelected(new Set());
+                        else setBatchSelected(new Set(pagedMembers.map(m => m.lineUserId)));
+                      }}>
+                      {batchSelected.size === pagedMembers.length ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหน้า'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Member Cards */}
           {loading ? <Spinner label="กำลังโหลด..." /> : (
-            <div className="space-y-2 mb-4">
+            <div className="space-y-2 mb-2">
               {filteredMembers.length === 0 ? (
                 <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
                   {memberSearch ? 'ไม่พบสมาชิกที่ค้นหา' : 'ไม่มีสมาชิก'}
                 </div>
-              ) : filteredMembers.map(m => {
+              ) : pagedMembers.map(m => {
                 const st  = STATUS_LABEL[m.status] || STATUS_LABEL.inactive;
                 const pic = m.pictureUrl || '';
+                const isChecked = batchSelected.has(m.lineUserId);
 
                 return (
                   <div key={m.lineUserId}
                     className="quiz-card rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer transition-all hover:shadow-md active:scale-[.98]"
-                    onClick={() => setSelectedMember(m)}>
+                    style={isChecked ? { border: '2px solid var(--accent)', background: 'var(--input-bg)' } : {}}
+                    onClick={() => {
+                      if (batchSelecting) {
+                        setBatchSelected(prev => { const s = new Set(prev); s.has(m.lineUserId) ? s.delete(m.lineUserId) : s.add(m.lineUserId); return s; });
+                      } else {
+                        setSelectedMember(m);
+                      }
+                    }}>
+
+                    {/* Checkbox in batch mode */}
+                    {batchSelecting && (
+                      <input type="checkbox" checked={isChecked} readOnly
+                        style={{ width: 18, height: 18, accentColor: 'var(--accent)', flexShrink: 0 }} />
+                    )}
 
                     {/* Avatar */}
                     <div className="relative flex-shrink-0">
@@ -1586,6 +3144,10 @@ function AdminScreenInner() {
                           <span className="text-xs px-1.5 py-0.5 rounded-full font-bold flex-shrink-0"
                             style={{ background: '#fef9c3', color: '#854d0e' }}>👑</span>
                         )}
+                        {m.role === 'teacher' && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full font-bold flex-shrink-0"
+                            style={{ background: '#ede9fe', color: '#7c3aed' }}>🎓</span>
+                        )}
                       </div>
                       {m.lineDisplayName && m.lineDisplayName !== m.fullName && (
                         <div className="flex items-center gap-1 text-xs">
@@ -1598,16 +3160,43 @@ function AdminScreenInner() {
                       </div>
                     </div>
 
-                    {/* Status + chevron */}
+                    {/* Status + quick action */}
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
                         style={{ background: st.bg, color: st.color }}>{st.label}</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>›</span>
+                      {!batchSelecting && m.status === 'pending' && (
+                        <button className="text-xs px-2 py-0.5 rounded-lg font-semibold"
+                          style={{ background: '#dcfce7', color: '#15803d', border: 'none', cursor: 'pointer' }}
+                          onClick={e => { e.stopPropagation(); (async () => {
+                            try {
+                              const data = await apiPost({ action: 'updateMember', callerUserId: profile.userId, targetUserId: m.lineUserId, newStatus: 'active' });
+                              if (!data.success) throw new Error(data.message);
+                              lsInvalidate('getMembersWithProfiles');
+                              loadMembers();
+                              Swal.fire({ icon: 'success', title: 'อนุมัติแล้ว!', timer: 1200, showConfirmButton: false });
+                            } catch (err) { Swal.fire('เกิดข้อผิดพลาด', err.message, 'error'); }
+                          })(); }}>
+                          ✅ อนุมัติ
+                        </button>
+                      )}
+                      {!batchSelecting && m.status !== 'pending' && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>›</span>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
+          )}
+
+          {/* Paginator สมาชิก */}
+          {!loading && filteredMembers.length > MEMBER_PAGE_SIZE && (
+            <Paginator
+              page={memberPage}
+              totalItems={filteredMembers.length}
+              pageSize={MEMBER_PAGE_SIZE}
+              onPage={p => { setMemberPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            />
           )}
         </div>
       )}
@@ -1858,8 +3447,9 @@ function AdminScreenInner() {
                           <div key={m.lineUserId}
                             className="grid items-center gap-2 px-3 py-2 text-xs"
                             style={{ gridTemplateColumns: '32px 1fr auto', borderBottom: i < targets.length - 1 ? '1px solid var(--input-border)' : 'none', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
-                            <img src={m.pictureUrl || 'https://i.pinimg.com/originals/be/04/0f/be040f35f073adc3a48c1fba489d2bc4.gif'}
-                              alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                            <img src={m.pictureUrl || FALLBACK_AVATAR}
+                              alt="" loading="lazy" decoding="async"
+                              className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                             <div className="min-w-0">
                               <div className="font-semibold truncate" style={{ color: 'var(--text)' }}>{m.fullName || m.displayName}</div>
                               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -1909,8 +3499,15 @@ function AdminScreenInner() {
       {tab === 'results' && (
         <div className="animate-fade">
           <div className="quiz-card no-hover rounded-2xl p-2 sm:p-3 mb-3 flex gap-2">
-            <input className="themed-input flex-1" placeholder="🔍 ค้นหาชื่อ / วิชา..."
-              value={resultSearch} onChange={e => setResultSearch(e.target.value)} />
+            <div className="relative flex-1">
+              <input className="themed-input w-full pr-16" placeholder="🔍 ค้นหาชื่อ / วิชา / หน่วยงาน..."
+                value={resultSearch} onChange={e => setResultSearch(e.target.value)} />
+              {resultSearch && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {filteredResults.length} รายการ
+                </span>
+              )}
+            </div>
             <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => loadResults(0)}>🔄</button>
             <button
               className="btn text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5"
@@ -1975,220 +3572,675 @@ function AdminScreenInner() {
         </div>
       )}
 
+      {/* ── Message Inbox Tab ─────────────────────────────── */}
+      {tab === 'inbox' && <MessageInboxScreen />}
+
       {/* ── Courses Tab ───────────────────────────────────── */}
       {tab === 'courses' && (
         <CourseManager callerUserId={profile.userId} />
       )}
 
-      {/* ── Settings Tab ──────────────────────────────────── */}
-      {/* ════════════════════════ TAB: แผนก ════════════════════════ */}
-      {tab === 'dept' && (() => {
-        const [deptData,  setDeptData]  = useState(null);
-        const [deptLoad,  setDeptLoad]  = useState(true);
-        const [editId,    setEditId]    = useState(null);  // lineUserId กำลังแก้
-        const [editDept,  setEditDept]  = useState('');
-        const [saving,    setSaving]    = useState(false);
-        const [deptFilter,setDeptFilter]= useState('');
-        const [newDeptName,setNewDeptName]= useState('');
+      {/* ── Lessons Tab ──────────────────────────────────── */}
+      {tab === 'lessons' && (
+        <LessonManager callerUserId={profile.userId} />
+      )}
 
-        useEffect(() => {
-          apiGet('getDepartments', { userId: profile.userId })
-            .then(d => { if (d.success) setDeptData(d); })
-            .catch(() => {})
-            .finally(() => setDeptLoad(false));
-        }, []);
+      {/* ── Subjects Tab ──────────────────────────────────── */}
+      {tab === 'subjects' && (
+        <SubjectManager callerUserId={profile.userId} />
+      )}
 
-        async function saveDept(lineUserId) {
-          setSaving(lineUserId);
-          try {
-            const res = await apiPost({ action:'updateUserDept', callerUserId: profile.userId, lineUserId, department: editDept });
-            if (!res.success) throw new Error(res.message);
-            setDeptData(prev => ({
-              ...prev,
-              members: prev.members.map(m => m.lineUserId === lineUserId ? { ...m, department: editDept } : m),
-              departments: (() => {
-                const map = {};
-                prev.members.map(m => m.lineUserId === lineUserId ? { ...m, department: editDept } : m)
-                  .forEach(m => { map[m.department] = (map[m.department]||0)+1; });
-                return Object.keys(map).sort().map(n => ({ name:n, count:map[n] }));
-              })(),
-            }));
-            setEditId(null);
-          } catch(e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
-          finally { setSaving(false); }
-        }
+      {/* ── Analytics Tab ────────────────────────────────── */}
+      {tab === 'analytics' && (
+        <div className="animate-fade space-y-4">
+          {/* Header */}
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <h2 className="font-bold text-base mb-1" style={{ color: 'var(--text)' }}>🔬 วิเคราะห์รายบุคคล (Individual Analytics)</h2>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>ข้อมูลเชิงลึกระดับงานวิจัย — Descriptive Statistics, Trend, Regression, Z-Score, Percentile</p>
 
-        if (deptLoad) return <Spinner label="กำลังโหลด..." />;
-        const depts   = deptData?.departments || [];
-        const members = deptData?.members || [];
-        const filtered = deptFilter ? members.filter(m => m.department === deptFilter) : members;
-
-        return (
-          <div className="animate-fade space-y-4">
-            {/* Department Summary */}
-            <div className="quiz-card no-hover rounded-2xl p-4">
-              <h3 className="font-bold text-sm mb-3" style={{ color:'var(--text)' }}>🏢 สรุปหน่วยงาน / กลุ่ม</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {depts.map(d => (
-                  <button key={d.name}
-                    className="rounded-xl p-3 text-center transition-all"
-                    style={{
-                      background: deptFilter===d.name ? 'var(--accent)' : 'var(--input-bg)',
-                      border: `1.5px solid ${deptFilter===d.name ? 'var(--accent)' : 'var(--input-border)'}`,
-                      color: deptFilter===d.name ? 'white' : 'var(--text)',
-                    }}
-                    onClick={() => setDeptFilter(prev => prev===d.name ? '' : d.name)}>
-                    <div className="text-lg font-black">{d.count}</div>
-                    <div className="text-xs truncate">{d.name}</div>
-                  </button>
-                ))}
-              </div>
-              {deptFilter && (
-                <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5 mt-3 w-full"
-                  onClick={() => setDeptFilter('')}>✕ ดูทุกหน่วยงาน</button>
-              )}
+            {/* Export buttons */}
+            <div className="flex gap-2 mb-4">
+              <button className="btn btn-primary rounded-xl py-2 px-4 text-xs flex-1"
+                disabled={researchExporting} onClick={exportResearchData}>
+                {researchExporting ? '⏳...' : '📊 Export JSON (วิจัย)'}
+              </button>
+              <button className="btn btn-green rounded-xl py-2 px-4 text-xs flex-1"
+                disabled={researchExporting} onClick={exportResearchCSV}>
+                {researchExporting ? '⏳...' : '📄 Export CSV (SPSS)'}
+              </button>
             </div>
 
-            {/* Member List */}
+            {/* Search member */}
+            <input className="themed-input w-full text-sm" placeholder="🔍 ค้นหาชื่อสมาชิก..."
+              value={analyticsSearch} onChange={e => setAnalyticsSearch(e.target.value)} />
+          </div>
+
+          {/* Member list */}
+          {!analyticsData && analyticsMembers && (
             <div className="quiz-card no-hover rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-sm" style={{ color:'var(--text)' }}>
-                  👤 สมาชิก {deptFilter ? `— ${deptFilter}` : 'ทุกหน่วยงาน'}
-                  <span className="ml-2 text-xs font-normal" style={{ color:'var(--text-muted)' }}>({filtered.length} คน)</span>
-                </h3>
-              </div>
-              <div className="space-y-2">
-                {filtered.map(m => (
-                  <div key={m.lineUserId} className="rounded-xl p-3"
-                    style={{ background:'var(--input-bg)', border:'1px solid var(--input-border)' }}>
-                    <div className="flex items-center gap-2">
-                      {m.pictureUrl
-                        ? <img src={m.pictureUrl} className="w-9 h-9 rounded-full object-cover flex-shrink-0" alt="" />
-                        : <div className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-lg" style={{ background:'var(--card)' }}>👤</div>}
+              <div className="text-xs font-bold mb-3" style={{ color: 'var(--text-muted)' }}>เลือกสมาชิกเพื่อดูวิเคราะห์</div>
+              <div className="space-y-2" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {analyticsMembers
+                  .filter(m => !analyticsSearch.trim() || (m.displayName||'').includes(analyticsSearch) || (m.fullName||'').includes(analyticsSearch))
+                  .slice(0, 50)
+                  .map(m => (
+                    <div key={m.lineUserId} className="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer"
+                      style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)', transition: 'all .12s' }}
+                      onClick={() => loadIndividualAnalytics(m.lineUserId)}>
+                      <img src={m.pictureUrl || FALLBACK_AVATAR}
+                        alt="" loading="lazy" decoding="async"
+                        className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate" style={{ color:'var(--text)' }}>{m.fullName || m.displayName}</div>
-                        <div className="text-xs" style={{ color:'var(--text-muted)' }}>{m.studentId && `#${m.studentId} • `}{m.department}</div>
+                        <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{m.fullName || m.displayName}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{m.department || ''} {m.course || ''}</div>
                       </div>
-                      {editId === m.lineUserId ? (
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <input list="dept-list" className="themed-input text-xs" style={{ width:130 }}
-                            placeholder="ชื่อหน่วยงาน..."
-                            value={editDept} onChange={e => setEditDept(e.target.value)} />
-                          <datalist id="dept-list">{depts.map(d=><option key={d.name} value={d.name}/>)}</datalist>
-                          <button className="btn btn-primary text-xs rounded-lg px-2 py-1"
-                            disabled={saving===m.lineUserId} onClick={() => saveDept(m.lineUserId)}>
-                            {saving===m.lineUserId ? '...' : '💾'}
-                          </button>
-                          <button className="btn btn-gray text-xs rounded-lg px-2 py-1" onClick={() => setEditId(null)}>✕</button>
-                        </div>
-                      ) : (
-                        <button className="btn btn-gray text-xs rounded-lg px-2 py-1 flex-shrink-0"
-                          onClick={() => { setEditId(m.lineUserId); setEditDept(m.department); }}>✏️</button>
-                      )}
+                      <span style={{ color: 'var(--accent)', fontSize: 16 }}>›</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Loading */}
+          {analyticsLoading && (
+            <div className="quiz-card no-hover rounded-2xl p-8 text-center">
+              <div className="spinner" style={{ margin: '0 auto 12px' }} />
+              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>กำลังวิเคราะห์ข้อมูล...</div>
+            </div>
+          )}
+
+          {/* Analytics Result */}
+          {analyticsData && !analyticsLoading && (() => {
+            const d = analyticsData;
+            const s = d.stats;
+            const c = d.comparison;
+            const p = d.profile;
+            if (!s || s.totalAttempts === 0) return (
+              <div className="quiz-card no-hover rounded-2xl p-6 text-center">
+                <div className="text-3xl mb-2">📭</div>
+                <div className="font-bold" style={{ color: 'var(--text)' }}>{p.fullName || p.displayName}</div>
+                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>ยังไม่มีข้อมูลการสอบ</div>
+                <button className="btn btn-gray rounded-xl py-2 px-6 text-xs mt-3" onClick={() => setAnalyticsData(null)}>← กลับ</button>
+              </div>
+            );
+            return (
+              <>
+                {/* Profile Card */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <img src={p.pictureUrl || FALLBACK_AVATAR}
+                      alt="" className="w-14 h-14 rounded-full object-cover" style={{ border: '3px solid var(--accent)' }} />
+                    <div className="flex-1">
+                      <div className="font-bold text-base" style={{ color: 'var(--text)' }}>{p.fullName || p.displayName}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{p.department} • {p.course} • {p.email}</div>
+                    </div>
+                    <button className="btn btn-gray rounded-lg py-1.5 px-3 text-xs" onClick={() => setAnalyticsData(null)}>← กลับ</button>
+                  </div>
+                </div>
+
+                {/* ── Descriptive Statistics ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📊 สถิติเชิงพรรณนา (Descriptive Statistics)</div>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {[
+                      { label: 'N (จำนวนครั้ง)', value: s.totalAttempts, color: 'var(--accent)' },
+                      { label: 'Mean (ค่าเฉลี่ย)', value: s.avgScore + '%', color: '#3b82f6' },
+                      { label: 'Median (มัธยฐาน)', value: s.median + '%', color: '#8b5cf6' },
+                      { label: 'S.D. (ส่วนเบี่ยงเบน)', value: s.stdDev, color: '#f59e0b' },
+                      { label: 'Max (สูงสุด)', value: s.bestScore + '%', color: '#16a34a' },
+                      { label: 'Min (ต่ำสุด)', value: s.worstScore + '%', color: '#ef4444' },
+                      { label: 'Q1', value: s.q1, color: '#06b6d4' },
+                      { label: 'Q3', value: s.q3, color: '#06b6d4' },
+                      { label: 'IQR', value: s.iqr, color: '#d97706' },
+                    ].map((item, i) => (
+                      <div key={i} className="rounded-xl p-2.5 text-center" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                        <div className="text-lg font-black" style={{ color: item.color }}>{item.value}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)', fontSize: 9 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl p-2.5" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                      <div className="text-xs font-bold" style={{ color: '#1d4ed8' }}>Pass Rate</div>
+                      <div className="text-xl font-black" style={{ color: '#1d4ed8' }}>{s.passRate}%</div>
+                      <div className="text-xs" style={{ color: '#3b82f6' }}>ผ่าน {s.passes} / ไม่ผ่าน {s.fails}</div>
+                    </div>
+                    <div className="rounded-xl p-2.5" style={{ background: s.trend === 'improving' ? '#f0fdf4' : s.trend === 'declining' ? '#fef2f2' : '#f8fafc', border: `1px solid ${s.trend === 'improving' ? '#bbf7d0' : s.trend === 'declining' ? '#fca5a5' : '#e2e8f0'}` }}>
+                      <div className="text-xs font-bold" style={{ color: s.trend === 'improving' ? '#16a34a' : s.trend === 'declining' ? '#dc2626' : '#64748b' }}>Trend</div>
+                      <div className="text-xl font-black" style={{ color: s.trend === 'improving' ? '#16a34a' : s.trend === 'declining' ? '#dc2626' : '#64748b' }}>
+                        {s.trend === 'improving' ? '📈 ดีขึ้น' : s.trend === 'declining' ? '📉 ลดลง' : '➡️ คงที่'}
+                      </div>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>slope: {s.trendSlope}/ครั้ง</div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {tab === 'settings' && (
-        <div className="animate-fade space-y-4">
-
-          {/* ── Announcements ────────────────── */}
-          {(() => {
-            const [anns,    setAnns]    = useState([]);
-            const [annForm, setAnnForm] = useState({ title:'', body:'', type:'info', pinned:false });
-            const [annLoading, setAnnLoading] = useState(false);
-            useEffect(() => {
-              apiGet('getAnnouncements', {}).then(d => { if(d.success) setAnns(d.announcements||[]); });
-            }, []);
-            const reload = () => apiGet('getAnnouncements',{}).then(d=>{ if(d.success) setAnns(d.announcements||[]); });
-            const add = async() => {
-              if (!annForm.title && !annForm.body) return;
-              setAnnLoading(true);
-              try {
-                const d = await apiPost({ action:'addAnnouncement', callerUserId:profile.userId, ...annForm });
-                if (!d.success) throw new Error(d.message);
-                setAnnForm({ title:'', body:'', type:'info', pinned:false });
-                reload();
-              } catch(e) { Swal.fire('ข้อผิดพลาด', e.message, 'error'); }
-              finally { setAnnLoading(false); }
-            };
-            const del = async(id) => {
-              const r = await Swal.fire({ title:'ลบประกาศ?', icon:'warning', showCancelButton:true, confirmButtonColor:'#ef4444', confirmButtonText:'ลบ' });
-              if (!r.isConfirmed) return;
-              const d = await apiPost({ action:'deleteAnnouncement', callerUserId:profile.userId, id });
-              if (d.success) reload();
-            };
-            const TYPE_LABEL = { info:'ℹ️ ข้อมูล', warning:'⚠️ เตือน', success:'✅ ข่าวดี' };
-            const TYPE_BG    = { info:'#eff6ff', warning:'#fffbeb', success:'#f0fdf4' };
-            const TYPE_COLOR = { info:'#1d4ed8', warning:'#92400e', success:'#15803d' };
-            return (
-              <div className="quiz-card no-hover rounded-2xl p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xl">📢</span>
-                  <span className="font-bold text-sm" style={{ color:'var(--text)' }}>ประกาศ / ข่าวสาร</span>
-                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
-                    style={{ background:'var(--input-bg)', color:'var(--text-muted)' }}>{anns.length} รายการ</span>
                 </div>
 
-                {/* Form เพิ่มประกาศ */}
-                <div className="space-y-2 mb-3 p-3 rounded-xl" style={{ background:'var(--input-bg)', border:'1px solid var(--input-border)' }}>
-                  <input className="themed-input w-full text-sm" placeholder="หัวข้อ (ไม่บังคับ)"
-                    value={annForm.title} onChange={e=>setAnnForm(p=>({...p,title:e.target.value}))}/>
-                  <textarea className="themed-input w-full text-sm" rows={2} placeholder="ข้อความประกาศ..."
-                    value={annForm.body} onChange={e=>setAnnForm(p=>({...p,body:e.target.value}))}
-                    style={{ resize:'none' }}/>
-                  <div className="flex gap-2">
-                    <select className="themed-input flex-1 text-sm" value={annForm.type}
-                      onChange={e=>setAnnForm(p=>({...p,type:e.target.value}))}>
-                      {Object.entries(TYPE_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                    </select>
-                    <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color:'var(--text)' }}>
-                      <input type="checkbox" checked={annForm.pinned}
-                        onChange={e=>setAnnForm(p=>({...p,pinned:e.target.checked}))}/>
-                      📌 ปักหมุด
-                    </label>
-                    <button className="btn text-xs rounded-lg px-3 py-1.5"
-                      style={{ background:(!annForm.title&&!annForm.body)||annLoading?'var(--input-bg)':'var(--accent)', color:(!annForm.title&&!annForm.body)||annLoading?'var(--text-muted)':'white' }}
-                      disabled={(!annForm.title&&!annForm.body)||annLoading}
-                      onClick={add}>
-                      {annLoading?'⏳':'➕ เพิ่ม'}
-                    </button>
+                {/* ── Comparison with Population ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📐 เปรียบเทียบกับประชากร (Population Comparison)</div>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div className="rounded-xl p-3 text-center" style={{ background: '#faf5ff', border: '1px solid #e9d5ff' }}>
+                      <div className="text-xs font-bold" style={{ color: '#7c3aed' }}>Z-Score</div>
+                      <div className="text-2xl font-black" style={{ color: c.zScore >= 0 ? '#16a34a' : '#ef4444' }}>{c.zScore > 0 ? '+' : ''}{c.zScore}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{c.zScore > 1 ? 'สูงกว่าค่าเฉลี่ยมาก' : c.zScore > 0 ? 'สูงกว่าค่าเฉลี่ย' : c.zScore > -1 ? 'ต่ำกว่าค่าเฉลี่ย' : 'ต่ำกว่าค่าเฉลี่ยมาก'}</div>
+                    </div>
+                    <div className="rounded-xl p-3 text-center" style={{ background: '#fefce8', border: '1px solid #fde68a' }}>
+                      <div className="text-xs font-bold" style={{ color: '#a16207' }}>Percentile</div>
+                      <div className="text-2xl font-black" style={{ color: '#a16207' }}>P{c.percentile}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ดีกว่า {c.percentile}% ของทั้งหมด</div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl p-2.5 text-xs" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)', color: 'var(--text-muted)' }}>
+                    ค่าเฉลี่ยประชากร: <b>{c.populationAvg}%</b> • S.D.: <b>{c.populationStdDev}</b> • N: <b>{c.totalPopulation}</b>
                   </div>
                 </div>
 
-                {/* รายการประกาศ */}
-                {anns.length===0 ? (
-                  <div className="text-center py-4 text-sm" style={{ color:'var(--text-muted)' }}>ยังไม่มีประกาศ</div>
-                ) : (
+                {/* ── Time Analysis ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>⏱ การใช้เวลา (Time Analysis)</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'เฉลี่ย', value: `${Math.floor(s.avgTime/60)}:${String(s.avgTime%60).padStart(2,'0')}`, color: '#3b82f6' },
+                      { label: 'เร็วสุด', value: `${Math.floor(s.fastestTime/60)}:${String(s.fastestTime%60).padStart(2,'0')}`, color: '#16a34a' },
+                      { label: 'ช้าสุด', value: `${Math.floor(s.slowestTime/60)}:${String(s.slowestTime%60).padStart(2,'0')}`, color: '#ef4444' },
+                    ].map((item, i) => (
+                      <div key={i} className="rounded-xl p-2.5 text-center" style={{ background: 'var(--input-bg)' }}>
+                        <div className="text-base font-black" style={{ color: item.color }}>{item.value}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Consistency & Streak ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>🔥 ความสม่ำเสมอ (Consistency)</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'Streak สูงสุด', value: `${s.maxStreak} วัน`, color: '#f59e0b' },
+                      { label: 'วันที่เข้าสอบ', value: `${s.totalActiveDays} วัน`, color: '#3b82f6' },
+                      { label: 'Activity Rate', value: `${s.activityRate}%`, color: '#16a34a' },
+                      { label: 'ช่วงเวลา', value: `${s.firstDate.slice(5)} — ${s.lastDate.slice(5)}`, color: '#8b5cf6' },
+                    ].map((item, i) => (
+                      <div key={i} className="rounded-xl p-2.5" style={{ background: 'var(--input-bg)' }}>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{item.label}</div>
+                        <div className="text-base font-bold" style={{ color: item.color }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Score Distribution ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📊 การกระจายคะแนน (Score Distribution)</div>
+                  {d.scoreDistribution.map((bin, i) => {
+                    const maxC = Math.max(...d.scoreDistribution.map(b => b.count), 1);
+                    const colors = ['#ef4444','#f59e0b','#eab308','#3b82f6','#16a34a'];
+                    return (
+                      <div key={i} className="flex items-center gap-2 mb-1.5">
+                        <span className="text-xs w-14 text-right font-mono" style={{ color: 'var(--text-muted)' }}>{bin.range}%</span>
+                        <div className="flex-1" style={{ height: 18, background: 'var(--input-bg)', borderRadius: 6, overflow: 'hidden' }}>
+                          <div style={{ width: `${(bin.count/maxC)*100}%`, height: '100%', background: colors[i], borderRadius: 6, transition: 'width .5s' }} />
+                        </div>
+                        <span className="text-xs w-6 font-bold" style={{ color: colors[i] }}>{bin.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Per-Subject Performance ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📚 วิเคราะห์รายวิชา (Subject Analysis)</div>
                   <div className="space-y-2">
-                    {anns.map(a=>(
-                      <div key={a.id} className="flex items-start gap-2 rounded-xl px-3 py-2.5"
-                        style={{ background:TYPE_BG[a.type]||'#eff6ff', border:`1px solid var(--input-border)` }}>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            {a.pinned && <span className="text-xs">📌</span>}
-                            <span className="text-xs font-semibold truncate" style={{ color:TYPE_COLOR[a.type]||'#1d4ed8' }}>
-                              {TYPE_LABEL[a.type]} {a.title && `— ${a.title}`}
+                    {d.subjectStats.map((sub, i) => (
+                      <div key={i} className="rounded-xl p-3" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-bold truncate" style={{ color: 'var(--text)', maxWidth: '55%' }}>{sub.subject}</span>
+                          <span className="text-xs font-bold" style={{ color: sub.passRate >= 60 ? '#16a34a' : '#ef4444' }}>{sub.avgScore}% avg</span>
+                        </div>
+                        <div style={{ height: 5, borderRadius: 99, background: 'var(--progress-trk)', overflow: 'hidden', marginBottom: 6 }}>
+                          <div style={{ width: `${sub.passRate}%`, height: '100%', borderRadius: 99, background: sub.passRate >= 60 ? '#22c55e' : '#ef4444' }} />
+                        </div>
+                        <div className="flex gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span>N={sub.attempts}</span>
+                          <span>ผ่าน {sub.passRate}%</span>
+                          <span>SD={sub.stdDev}</span>
+                          <span>Best={sub.bestScore}%</span>
+                          <span>Worst={sub.worstScore}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Monthly Progress ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📈 ความก้าวหน้ารายเดือน (Monthly Progress)</div>
+                  {d.monthlyProgress.length === 0 ? <div className="text-xs" style={{color:'var(--text-muted)'}}>ไม่มีข้อมูล</div> :
+                  <div className="space-y-1.5">
+                    {d.monthlyProgress.map((m, i) => {
+                      const maxA = Math.max(...d.monthlyProgress.map(x=>x.attempts), 1);
+                      return (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs w-16 font-mono" style={{ color: 'var(--text-muted)' }}>{m.month}</span>
+                          <div className="flex-1" style={{ height: 20, background: 'var(--input-bg)', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+                            <div style={{ width: `${(m.attempts/maxA)*100}%`, height: '100%', background: `linear-gradient(90deg, ${m.passRate>=60?'#22c55e':'#ef4444'}, ${m.passRate>=60?'#16a34a':'#dc2626'})`, borderRadius: 6 }} />
+                            <span className="absolute inset-0 flex items-center justify-center text-xs font-bold" style={{ color: m.attempts/maxA > 0.3 ? 'white' : 'var(--text)' }}>
+                              {m.attempts}x • {m.avgScore}% • Pass {m.passRate}%
                             </span>
                           </div>
-                          {a.body && <div className="text-xs mt-0.5" style={{ color:'var(--text-muted)' }}>{a.body}</div>}
-                          <div className="text-xs mt-0.5" style={{ color:'var(--text-muted)', opacity:.6 }}>{a.createdAt}</div>
                         </div>
-                        <button className="btn-gray btn text-xs rounded-lg px-2 py-1 flex-shrink-0"
-                          onClick={()=>del(a.id)}>🗑</button>
+                      );
+                    })}
+                  </div>}
+                </div>
+
+                {/* ── Activity Pattern ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📅 รูปแบบการเข้าสอบ (Activity Pattern)</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-bold mb-2" style={{ color: 'var(--text-muted)' }}>ตามวัน (Day of Week)</div>
+                      {d.dailyPattern.map((dp, i) => {
+                        const maxD = Math.max(...d.dailyPattern.map(x=>x.count), 1);
+                        return (
+                          <div key={i} className="flex items-center gap-1 mb-1">
+                            <span className="text-xs w-10" style={{ color: 'var(--text-muted)', fontSize: 9 }}>{dp.day}</span>
+                            <div className="flex-1" style={{ height: 10, background: 'var(--input-bg)', borderRadius: 4, overflow: 'hidden' }}>
+                              <div style={{ width: `${(dp.count/maxD)*100}%`, height: '100%', background: '#3b82f6', borderRadius: 4 }} />
+                            </div>
+                            <span className="text-xs w-4" style={{ color: 'var(--text-muted)', fontSize: 9 }}>{dp.count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold mb-2" style={{ color: 'var(--text-muted)' }}>ตามชั่วโมง (Hour)</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 2 }}>
+                        {d.hourlyPattern.map((hp, i) => {
+                          const maxH = Math.max(...d.hourlyPattern.map(x=>x.count), 1);
+                          const intensity = hp.count / maxH;
+                          return (
+                            <div key={i} title={`${hp.hour}:00 = ${hp.count}`}
+                              style={{ width: '100%', aspectRatio: '1', borderRadius: 4, background: hp.count > 0 ? `rgba(59,130,246,${0.15 + intensity*0.85})` : 'var(--input-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <span style={{ fontSize: 7, color: intensity > 0.5 ? 'white' : 'var(--text-muted)', fontWeight: 700 }}>{hp.hour}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Weak Topics ── */}
+                {d.weakTopics.length > 0 && (
+                  <div className="quiz-card no-hover rounded-2xl p-4">
+                    <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>❌ จุดอ่อน — ข้อที่ตอบผิดบ่อย (Weakness Analysis)</div>
+                    <div className="space-y-1.5" style={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {d.weakTopics.slice(0, 15).map((w, i) => (
+                        <div key={i} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: '#fef2f2', border: '1px solid #fca5a5' }}>
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-black" style={{ background: '#fee2e2', color: '#dc2626' }}>{w.wrongCount}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate" style={{ color: '#b91c1c' }}>{w.topic}</div>
+                            <div className="text-xs truncate" style={{ color: '#dc2626', opacity: .7 }}>{w.question}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Recent Attempts ── */}
+                <div className="quiz-card no-hover rounded-2xl p-4">
+                  <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>🕐 ประวัติล่าสุด (Recent Attempts)</div>
+                  <div className="space-y-1.5" style={{ maxHeight: 300, overflowY: 'auto' }}>
+                    {d.recentAttempts.map((a, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'var(--input-bg)' }}>
+                        <div className="w-7 text-center flex-shrink-0">
+                          <div className="text-xs font-black" style={{ color: a.pass ? '#16a34a' : '#ef4444' }}>{a.pct}%</div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{a.lesson}</div>
+                          <div className="text-xs" style={{ color: 'var(--text-muted)', fontSize: 9 }}>
+                            {new Date(a.date).toLocaleString('th-TH')} • {a.score}/{a.total} • {Math.floor(a.timeUsed/60)}:{String(a.timeUsed%60).padStart(2,'0')}
+                          </div>
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: a.pass ? '#dcfce7' : '#fee2e2', color: a.pass ? '#15803d' : '#b91c1c' }}>
+                          {a.pass ? 'ผ่าน' : 'ไม่ผ่าน'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── System Health Tab ─────────────────────────────── */}
+      {tab === 'health' && (
+        <div className="animate-fade">
+          {healthLoading ? <Spinner label="กำลังตรวจสอบระบบ..." /> : !healthData ? (
+            <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>ไม่พบข้อมูล</div>
+          ) : (
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold" style={{ color: 'var(--text)' }}>🩺 System Health Dashboard</h3>
+                <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={loadHealth}>🔄 Refresh</button>
+              </div>
+
+              {/* ── API Keys & Tokens ─── */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>🔑 API Keys & Tokens</div>
+                <div className="space-y-2">
+                  {Object.entries(healthData.keyStatus).map(([key, val]) => {
+                    const ok = val.startsWith('✅');
+                    return (
+                      <div key={key} className="flex items-center justify-between py-2 px-3 rounded-xl"
+                        style={{ background: ok ? '#f0fdf4' : '#fef2f2' }}>
+                        <span className="text-xs font-mono font-semibold" style={{ color: 'var(--text)' }}>{key}</span>
+                        <span className="text-xs font-semibold" style={{ color: ok ? '#15803d' : '#b91c1c' }}>{val}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Triggers ─── */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>
+                  ⚡ Triggers ({healthData.triggers.length})
+                </div>
+                {healthData.triggers.length === 0 ? (
+                  <div className="text-xs py-3 text-center" style={{ color: 'var(--text-muted)' }}>ไม่มี Trigger ที่ทำงานอยู่</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {healthData.triggers.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 py-2 px-3 rounded-xl"
+                        style={{ background: 'var(--input-bg)' }}>
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22c55e' }} />
+                        <span className="text-xs font-mono font-semibold flex-1" style={{ color: 'var(--text)' }}>
+                          {t.funcName}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t.type}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            );
-          })()}
 
+              {/* ── Sync Stats ─── */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>🔄 Sync Status</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Profile Sync */}
+                  <div className="rounded-xl p-3" style={{ background: 'var(--input-bg)' }}>
+                    <div className="text-xs font-bold mb-2" style={{ color: 'var(--text)' }}>Profile Sync</div>
+                    {[
+                      { l: 'Cursor', v: `${healthData.syncStats.profileSync.cursor}/${healthData.syncStats.profileSync.total}` },
+                      { l: 'Updated', v: healthData.syncStats.profileSync.updated },
+                      { l: 'Failed', v: healthData.syncStats.profileSync.failed },
+                      { l: 'Cycles', v: healthData.syncStats.profileSync.cyclesDone },
+                      { l: 'Last', v: healthData.syncStatsFormatted.profileLastTime },
+                    ].map(r => (
+                      <div key={r.l} className="flex justify-between text-xs py-0.5">
+                        <span style={{ color: 'var(--text-muted)' }}>{r.l}</span>
+                        <span className="font-mono font-semibold" style={{ color: 'var(--text)' }}>{r.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* RM Sync */}
+                  <div className="rounded-xl p-3" style={{ background: 'var(--input-bg)' }}>
+                    <div className="text-xs font-bold mb-2" style={{ color: 'var(--text)' }}>Rich Menu Sync</div>
+                    {[
+                      { l: 'Cursor', v: `${healthData.syncStats.rmSync.cursor}/${healthData.syncStats.rmSync.total}` },
+                      { l: 'Updated', v: healthData.syncStats.rmSync.updated },
+                      { l: 'Failed', v: healthData.syncStats.rmSync.failed },
+                      { l: 'Cycles', v: healthData.syncStats.rmSync.cyclesDone },
+                      { l: 'Last', v: healthData.syncStatsFormatted.rmLastTime },
+                    ].map(r => (
+                      <div key={r.l} className="flex justify-between text-xs py-0.5">
+                        <span style={{ color: 'var(--text-muted)' }}>{r.l}</span>
+                        <span className="font-mono font-semibold" style={{ color: 'var(--text)' }}>{r.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Sheet Sizes ─── */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📊 Sheet Row Counts</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {Object.entries(healthData.sheetSizes).map(([name, count]) => {
+                    const warn = count > 5000;
+                    return (
+                      <div key={name} className="rounded-xl p-2.5 text-center"
+                        style={{ background: warn ? '#fef3c7' : 'var(--input-bg)' }}>
+                        <div className="text-lg font-black" style={{ color: warn ? '#92400e' : 'var(--accent)' }}>
+                          {count.toLocaleString()}
+                        </div>
+                        <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-muted)' }}>
+                          {name} {warn && '⚠️'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                  Cache: <span className="font-mono font-semibold" style={{ color: healthData.cacheStatus === 'OK' ? '#16a34a' : '#ef4444' }}>
+                    {healthData.cacheStatus}
+                  </span>
+                </div>
+              </div>
+
+              {/* ── Audit Logs ─── */}
+              <div className="quiz-card no-hover rounded-2xl p-4">
+                <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📝 Audit Log (ล่าสุด 20 รายการ)</div>
+                {healthData.auditLogs.length === 0 ? (
+                  <div className="text-xs py-3 text-center" style={{ color: 'var(--text-muted)' }}>ยังไม่มีข้อมูล</div>
+                ) : (
+                  <div className="space-y-1" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {healthData.auditLogs.map((log, i) => (
+                      <div key={i} className="flex gap-2 py-1.5 px-2 rounded-lg text-xs"
+                        style={{ background: i % 2 === 0 ? 'var(--input-bg)' : 'transparent' }}>
+                        <span className="flex-shrink-0 font-mono" style={{ color: 'var(--text-muted)', minWidth: 110 }}>{log.time}</span>
+                        <span className="font-semibold flex-shrink-0 px-1.5 rounded"
+                          style={{
+                            background: log.action.includes('delete') ? '#fee2e2' : log.action.includes('Role') ? '#ede9fe' : '#dbeafe',
+                            color: log.action.includes('delete') ? '#b91c1c' : log.action.includes('Role') ? '#7c3aed' : '#1d4ed8',
+                          }}>{log.action}</span>
+                        <span className="truncate" style={{ color: 'var(--text)' }}>{log.detail || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Settings Tab ────────────────────��─────────────── */}
+      {/* ════════════════════════ TAB: หน่วยงาน ════════════════════════ */}
+      {tab === 'dept' && <DeptTab callerUserId={profile.userId} />}
+
+      {/* ════════════════════════ TAB: ผลสอบรายหน่วยงาน ════════════════════════ */}
+      {tab === 'deptResults' && <DeptResultsTab callerUserId={profile.userId} />}
+
+      {/* ════════════════════════ TAB: ข้อยาก ════════════════════════ */}
+      {tab === 'qstats' && <QStatsTab callerUserId={profile.userId} />}
+
+      {/* ════════════════════════ TAB: Flags ════════════════════════ */}
+      {tab === 'flags' && <FlagsTab callerUserId={profile.userId} />}
+
+      {tab === 'settings' && (
+        <div className="animate-fade space-y-4">
+
+          {/* ── Announcements ────────────────── */}
+          <AnnouncementsSection callerUserId={profile.userId} />
+
+          {/* ── Question Bank Schedule ────────── */}
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">📚</span>
+              <div>
+                <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>คลังข้อสอบ (เลือกวิชา)</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>กำหนดวันเวลาเปิด-ปิด และจำนวนข้อ</div>
+              </div>
+              {qbSettings && (
+                <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-semibold"
+                  style={qbSettings.open
+                    ? { background: '#dcfce7', color: '#15803d' }
+                    : { background: '#fee2e2', color: '#b91c1c' }}>
+                  {qbSettings.open ? '🟢 เปิดอยู่' : '🔴 ปิดอยู่'}
+                </span>
+              )}
+            </div>
+
+            {/* Toggle enable */}
+            <div className="flex items-center gap-3 mb-4 rounded-xl p-3"
+              style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+              <label className="toggle">
+                <input type="checkbox" checked={qbEnabled} onChange={e => setQbEnabled(e.target.checked)} />
+                <span className="toggle-slider" />
+              </label>
+              <div>
+                <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>
+                  {qbEnabled ? '✅ เปิดใช้งานคลังข้อสอบ' : '🔒 ปิดคลังข้อสอบ'}
+                </span>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {qbEnabled ? 'ผู้ใช้สามารถเลือกวิชาสอบได้ (ตามกำหนดเวลา)' : 'ผู้ใช้ไม่สามารถเข้าถึงคลังข้อสอบ'}
+                </div>
+              </div>
+            </div>
+
+            {/* Schedule */}
+            {qbEnabled && (
+              <div className="space-y-3 mb-4">
+                <div className="rounded-xl p-3" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                  <div className="text-xs font-bold mb-2" style={{ color: '#1d4ed8' }}>⏰ กำหนดเวลาเปิด-ปิด</div>
+                  <div className="text-xs mb-2" style={{ color: '#3b82f6' }}>เว้นว่างไว้ = ไม่จำกัดเวลา (เปิดตลอด)</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>เริ่ม</span>
+                      <input type="datetime-local" className="themed-input w-full mt-1 text-xs"
+                        value={qbStart ? qbStart.slice(0, 16) : ''}
+                        onChange={e => setQbStart(e.target.value ? new Date(e.target.value).toISOString() : '')} />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>สิ้นสุด</span>
+                      <input type="datetime-local" className="themed-input w-full mt-1 text-xs"
+                        value={qbEnd ? qbEnd.slice(0, 16) : ''}
+                        onChange={e => setQbEnd(e.target.value ? new Date(e.target.value).toISOString() : '')} />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Num Questions */}
+                <div className="rounded-xl p-3" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                  <div className="text-xs font-bold mb-2" style={{ color: '#15803d' }}>📝 จำนวนข้อสอบ</div>
+                  <div className="flex items-center gap-3">
+                    <input type="range" min="5" max="100" value={Math.min(qbNumQ, 100)} className="flex-1"
+                      onChange={e => setQbNumQ(Number(e.target.value))} />
+                    <input type="number" min="1" max="9999" value={qbNumQ}
+                      className="themed-input text-center text-sm" style={{ width: 70 }}
+                      onChange={e => setQbNumQ(Math.max(1, parseInt(e.target.value) || 1))} />
+                    <span className="text-xs" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>ข้อ</span>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    {[10, 20, 30, 50].map(n => (
+                      <button key={n} className="btn btn-gray text-xs rounded-lg px-3 py-1" onClick={() => setQbNumQ(n)}>{n}</button>
+                    ))}
+                    <button className="btn btn-primary text-xs rounded-lg px-3 py-1" onClick={() => setQbNumQ(9999)}>ไม่จำกัด</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Save */}
+            <button className="btn w-full rounded-xl py-2.5 text-sm font-bold"
+              style={{ background: 'var(--accent)', color: 'white', opacity: qbSaving ? .5 : 1 }}
+              disabled={qbSaving}
+              onClick={saveQBankSettings}>
+              {qbSaving ? '⏳ บันทึก...' : '💾 บันทึกตั้งค่าคลังข้อสอบ'}
+            </button>
+
+            {/* Current status */}
+            {qbSettings && (
+              <div className="mt-3 rounded-xl p-3 text-xs" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="font-semibold mb-1" style={{ color: 'var(--text)' }}>สถานะปัจจุบัน</div>
+                <div style={{ color: 'var(--text-muted)' }}>
+                  {qbSettings.open
+                    ? '🟢 เปิดอยู่ — ผู้ใช้เข้าได้'
+                    : `🔴 ปิดอยู่ — ${qbSettings.reason || ''}`}
+                  {qbSettings.start && <div>เริ่ม: {new Date(qbSettings.start).toLocaleString('th-TH')}</div>}
+                  {qbSettings.end && <div>สิ้นสุด: {new Date(qbSettings.end).toLocaleString('th-TH')}</div>}
+                  {qbSettings.numQ > 0 && qbSettings.numQ < 9999 && <div>จำนวนข้อ: {qbSettings.numQ}</div>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── LINE Token Section ────────────── */}
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">🟢</span>
+              <div>
+                <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>LINE Channel Token</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Token สำหรับเรียก LINE Messaging API (Rich Menu, Profile, Push)</div>
+              </div>
+              {lineTokenStatus && (
+                <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-semibold"
+                  style={lineTokenStatus.hasToken
+                    ? { background: '#dcfce7', color: '#15803d' }
+                    : { background: '#fee2e2', color: '#b91c1c' }}>
+                  {lineTokenStatus.hasToken ? '✅ ตั้งค่าแล้ว' : '⚠️ ยังไม่ได้ตั้งค่า'}
+                </span>
+              )}
+            </div>
+
+            {lineTokenStatus?.hasToken && (
+              <div className="rounded-xl p-3 mb-4"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="flex justify-between text-xs">
+                  <span style={{ color: 'var(--text-muted)' }}>Token</span>
+                  <span className="font-mono" style={{ color: 'var(--text)' }}>{lineTokenStatus.preview}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3 mb-4">
+              <label className="block">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                  Channel Access Token <span style={{ color: '#94a3b8' }}>(จาก LINE Developers Console)</span>
+                </span>
+                <input className="themed-input w-full mt-1 font-mono text-xs"
+                  type="password"
+                  placeholder={lineTokenStatus?.hasToken ? '••••••• (ใส่ใหม่เพื่อเปลี่ยน)' : 'Channel Access Token (long-lived)'}
+                  value={lineTokenInput}
+                  onChange={e => setLineTokenInput(e.target.value)} />
+              </label>
+            </div>
+
+            <button className="btn w-full rounded-xl py-2.5 text-sm"
+              style={{ background: 'var(--accent)', color: 'white', opacity: lineTokenSaving || !lineTokenInput.trim() ? .5 : 1 }}
+              disabled={lineTokenSaving || !lineTokenInput.trim()}
+              onClick={saveLineToken}>
+              {lineTokenSaving ? '⏳ บันทึก...' : '💾 บันทึก LINE Token'}
+            </button>
+
+            <div className="mt-4 rounded-xl p-3 text-xs space-y-1"
+              style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', border: '1px solid var(--input-border)' }}>
+              <div className="font-semibold mb-2" style={{ color: 'var(--text)' }}>📖 วิธีรับ LINE Channel Token</div>
+              <div>1. ไปที่ <b>developers.line.biz</b> → เลือก Provider → Channel</div>
+              <div>2. ไปที่ tab <b>Messaging API</b></div>
+              <div>3. เลื่อนลงหา <b>Channel access token (long-lived)</b></div>
+              <div>4. กด <b>Issue</b> → คัดลอก token ทั้งหมดมาวาง</div>
+            </div>
+          </div>
 
           {/* ── Telegram Section ─────────────── */}
           <div className="quiz-card no-hover rounded-2xl p-4">
@@ -2313,6 +4365,31 @@ function AdminScreenInner() {
               )}
             </div>
 
+            {/* Reply via Telegram setup */}
+            {tgConfig?.configured && (
+              <div className="mt-3 rounded-xl p-3"
+                style={{ background: 'linear-gradient(135deg, #e0f2fe, #ddd6fe)', border: '1.5px solid #0088cc' }}>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="flex-1">
+                    <div className="font-bold text-xs" style={{ color: '#0c4a6e' }}>↩️ ตอบข้อความผ่าน Telegram</div>
+                    <div className="text-xs mt-0.5" style={{ color: '#0369a1' }}>
+                      Reply ข้อความที่ bot ส่งมา → ระบบจะตอบกลับ user ใน LINE ทันที
+                    </div>
+                  </div>
+                  <button className="btn rounded-xl px-3 py-2 text-xs whitespace-nowrap"
+                    style={{ background: '#0088cc', color: 'white' }}
+                    onClick={setupTgWebhook}>
+                    🔗 เปิดใช้
+                  </button>
+                </div>
+                <div className="text-xs space-y-0.5" style={{ color: '#0c4a6e' }}>
+                  <div>• <b>วิธี 1:</b> Reply ข้อความ bot ที่มี <code>#MSGxxx</code> → พิมพ์คำตอบ</div>
+                  <div>• <b>วิธี 2:</b> <code>/reply MSGxxx ข้อความ</code></div>
+                  <div>• <b>วิธี 3:</b> <code>#MSGxxx ข้อความ</code></div>
+                </div>
+              </div>
+            )}
+
             {/* คำแนะนำ */}
             <div className="mt-4 rounded-xl p-3 text-xs space-y-1"
               style={{ background: 'var(--input-bg)', color: 'var(--text-muted)', border: '1px solid var(--input-border)' }}>
@@ -2430,60 +4507,7 @@ function AdminScreenInner() {
           })()}
 
           {/* ── Exam Reminder ─────── */}
-          {(() => {
-            const [remStatus, setRemStatus] = useState(null);
-            const [remLoad, setRemLoad] = useState(false);
-            useState(() => {
-              apiGet('getReminderStatus', { userId: profile.userId })
-                .then(d => { if (d.success) setRemStatus(d); })
-                .catch(() => {});
-            }, []);
-            async function toggleReminder() {
-              setRemLoad(true);
-              try {
-                const action = remStatus?.active ? 'removeReminderTrigger' : 'setupReminderTrigger';
-                const d = await apiGet(action, { userId: profile.userId });
-                if (d.success) setRemStatus(prev => ({ ...prev, active: !prev?.active, message: d.message }));
-              } catch(e) { Swal.fire('เกิดข้อผิดพลาด', e.message, 'error'); }
-              finally { setRemLoad(false); }
-            }
-            return (
-              <div className="quiz-card no-hover rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="font-bold text-sm" style={{ color:'var(--text)' }}>⏰ แจ้งเตือนใกล้หมดเวลาสอบ</div>
-                    <div className="text-xs" style={{ color:'var(--text-muted)' }}>ส่ง LINE แจ้งเตือน 24 ชั่วโมงก่อน ExamSet ปิด</div>
-                  </div>
-                  <button
-                    className="btn text-xs rounded-lg px-3 py-1.5 font-semibold"
-                    style={{ background: remStatus?.active ? '#ef4444' : '#16a34a', color:'white', opacity: remLoad ? .6 : 1 }}
-                    disabled={remLoad}
-                    onClick={toggleReminder}>
-                    {remLoad ? '...' : remStatus?.active ? '🔕 ปิด' : '🔔 เปิด'}
-                  </button>
-                </div>
-                <div className="text-xs px-3 py-2 rounded-xl mb-3"
-                  style={{ background: remStatus?.active ? '#f0fdf4' : '#fef2f2', color: remStatus?.active ? '#15803d' : '#b91c1c', border: `1px solid ${remStatus?.active ? '#bbf7d0' : '#fecaca'}` }}>
-                  {remStatus?.active ? '✅ เปิดใช้งาน — ตรวจทุก 6 ชั่วโมง' : '❌ ปิดอยู่'}
-                  {remStatus?.message && <span className="ml-2 opacity-75">({remStatus.message})</span>}
-                </div>
-                {remStatus?.logs?.length > 0 && (
-                  <div>
-                    <div className="text-xs font-semibold mb-2" style={{ color:'var(--text-muted)' }}>ประวัติการแจ้งเตือนล่าสุด</div>
-                    <div className="space-y-1">
-                      {remStatus.logs.map((l,i) => (
-                        <div key={i} className="text-xs flex gap-2" style={{ color:'var(--text-muted)' }}>
-                          <span className="flex-shrink-0">{l.sentAt}</span>
-                          <span className="flex-1 truncate">{l.setName}</span>
-                          <span>{l.recipients}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <ExamReminderSection callerUserId={profile.userId} />
 
         </div>
       )}
