@@ -19,8 +19,22 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/online-exam-system/sw.js')
-          .catch(() => {});
+        navigator.serviceWorker.register('/online-exam-system/sw.js').then(reg => {
+          // ตรวจหา SW ใหม่ทุก 60 นาที
+          setInterval(() => { try { reg.update(); } catch(_) {} }, 60 * 60 * 1000);
+
+          // แจ้งเตือนเมื่อมี SW เวอร์ชันใหม่พร้อมใช้งาน
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                // ส่ง event ให้ React แสดง toast
+                window.dispatchEvent(new CustomEvent('sw-update-ready', { detail: { worker: nw } }));
+              }
+            });
+          });
+        }).catch(() => {});
       });
     }
   </script>
