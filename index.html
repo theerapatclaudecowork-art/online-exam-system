@@ -12,18 +12,32 @@
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
-  <script type="module" crossorigin src="/online-exam-system/assets/index-bogXa3Ud.js"></script>
+  <script type="module" crossorigin src="/online-exam-system/assets/index-rQv0Gm7v.js"></script>
   <link rel="modulepreload" crossorigin href="/online-exam-system/assets/react-vendor-D7f9BLy3.js">
   <link rel="modulepreload" crossorigin href="/online-exam-system/assets/swal-CvlpapFA.js">
-  <link rel="stylesheet" crossorigin href="/online-exam-system/assets/index-BK-1oLk3.css">
+  <link rel="stylesheet" crossorigin href="/online-exam-system/assets/index-CYNM75qn.css">
 </head>
 <body>
   <div id="root"></div>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/online-exam-system/sw.js')
-          .catch(() => {});
+        navigator.serviceWorker.register('/online-exam-system/sw.js').then(reg => {
+          // ตรวจหา SW ใหม่ทุก 60 นาที
+          setInterval(() => { try { reg.update(); } catch(_) {} }, 60 * 60 * 1000);
+
+          // แจ้งเตือนเมื่อมี SW เวอร์ชันใหม่พร้อมใช้งาน
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                // ส่ง event ให้ React แสดง toast
+                window.dispatchEvent(new CustomEvent('sw-update-ready', { detail: { worker: nw } }));
+              }
+            });
+          });
+        }).catch(() => {});
       });
     }
   </script>
