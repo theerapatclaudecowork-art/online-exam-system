@@ -1652,6 +1652,214 @@ function LiveMonitor({ callerUserId }) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  ScriptPropsPanel — ตั้งค่า Script Properties จาก Admin UI
+// ════════════════════════════════════════════════════════════
+const PROP_META = [
+  {
+    key: 'LINE_CHANNEL_SECRET',
+    label: 'LINE Channel Secret',
+    hint: 'จาก LINE Developers Console → Channel → Basic Settings',
+    secret: true, placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+  },
+  {
+    key: 'TG_BOT_TOKEN',
+    label: 'Telegram Bot Token',
+    hint: 'จาก @BotFather → /token',
+    secret: true, placeholder: '123456789:AAAA...',
+  },
+  {
+    key: 'TG_CHAT_ID',
+    label: 'Telegram Chat ID',
+    hint: 'ID ห้องที่ bot จะส่ง alert เข้า (ติดลบถ้าเป็น group)',
+    secret: false, placeholder: '-1001234567890',
+  },
+  {
+    key: 'BACKUP_FOLDER_ID',
+    label: 'Backup Folder ID (Drive)',
+    hint: 'ID ของ Google Drive folder ปลายทาง (ดูจาก URL)',
+    secret: false, placeholder: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms',
+  },
+  {
+    key: 'BACKUP_RETAIN_DAYS',
+    label: 'Backup Retain Days',
+    hint: 'จำนวนวันที่เก็บ backup ไว้ (default 30)',
+    secret: false, placeholder: '30',
+  },
+  {
+    key: 'SESSION_MAX_HOURS',
+    label: 'Session Max Hours',
+    hint: 'ลบ session ที่ไม่ active เกินกี่ชั่วโมง (default 24)',
+    secret: false, placeholder: '24',
+  },
+  {
+    key: 'TELEGRAM_ALERT_SEVERITY',
+    label: 'Telegram Alert Severity',
+    hint: 'ส่ง alert เฉพาะ severity ≥ นี้: error | warning | info (default error)',
+    secret: false, placeholder: 'error',
+  },
+];
+
+function ScriptPropsPanel({ callerUserId }) {
+  const [propData, setPropData]   = useState(null);   // { KEY: { set, masked } }
+  const [loading, setLoading]     = useState(false);
+  const [editKey, setEditKey]     = useState(null);   // key ที่กำลัง edit
+  const [editVal, setEditVal]     = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [showVal, setShowVal]     = useState({});     // { key: bool } toggle show secret
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await apiGet('getScriptProperties', { userId: callerUserId });
+      if (d.success) setPropData(d.props);
+      else Swal.fire('ผิดพลาด', d.message, 'error');
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function startEdit(key) {
+    setEditKey(key);
+    setEditVal('');
+  }
+
+  async function saveEdit() {
+    if (!editKey) return;
+    setSaving(true);
+    try {
+      const d = await apiPost({ action: 'setScriptProperty', callerUserId, key: editKey, value: editVal });
+      if (d.success) {
+        Swal.fire({ icon: 'success', title: d.cleared ? 'ลบค่าแล้ว' : 'บันทึกแล้ว', timer: 1800, showConfirmButton: false });
+        setEditKey(null);
+        await load();
+      } else {
+        Swal.fire('ผิดพลาด', d.message, 'error');
+      }
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function clearProp(key) {
+    const r = await Swal.fire({
+      title: 'ลบค่า ' + key + '?',
+      icon: 'warning', showCancelButton: true,
+      confirmButtonText: 'ลบ', confirmButtonColor: '#ef4444', cancelButtonText: 'ยกเลิก',
+    });
+    if (!r.isConfirmed) return;
+    setSaving(true);
+    try {
+      const d = await apiPost({ action: 'setScriptProperty', callerUserId, key, value: '' });
+      if (d.success) { await load(); }
+      else Swal.fire('ผิดพลาด', d.message, 'error');
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="quiz-card no-hover rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>⚙️ Script Properties</div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>ตั้งค่า LINE / Telegram / Backup โดยไม่ต้องเปิด GAS Editor</div>
+        </div>
+        <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={load} disabled={loading}>
+          {loading ? <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : '🔄'}
+        </button>
+      </div>
+
+      {!propData ? (
+        <div className="py-4 text-center text-xs" style={{ color: 'var(--text-muted)' }}>กำลังโหลด...</div>
+      ) : (
+        <div className="space-y-2">
+          {PROP_META.map(meta => {
+            const info   = propData[meta.key] || { set: false, masked: '' };
+            const isEdit = editKey === meta.key;
+            return (
+              <div key={meta.key} className="rounded-xl p-3"
+                style={{ background: 'var(--input-bg)', border: `1px solid ${info.set ? 'var(--input-border)' : '#fde68a'}` }}>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-bold font-mono" style={{ color: 'var(--text)' }}>{meta.key}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
+                        style={info.set
+                          ? { background: '#dcfce7', color: '#15803d' }
+                          : { background: '#fef3c7', color: '#92400e' }}>
+                        {info.set ? '✅ ตั้งแล้ว' : '⚠️ ยังไม่ได้ตั้ง'}
+                      </span>
+                    </div>
+                    <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{meta.label}</div>
+                    {info.set && !isEdit && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                          {meta.secret && !showVal[meta.key] ? info.masked : info.masked}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    {!isEdit && (
+                      <button
+                        className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--accent)', color: 'white' }}
+                        onClick={() => startEdit(meta.key)}>
+                        {info.set ? '✏️' : '+ ตั้งค่า'}
+                      </button>
+                    )}
+                    {!isEdit && info.set && (
+                      <button
+                        className="btn text-xs rounded-lg px-2.5 py-1.5"
+                        style={{ background: '#fee2e2', color: '#b91c1c' }}
+                        onClick={() => clearProp(meta.key)}>
+                        🗑
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Edit form */}
+                {isEdit && (
+                  <div className="mt-2 space-y-2">
+                    <div className="text-xs rounded-lg px-2 py-1.5"
+                      style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+                      💡 {meta.hint}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type={meta.secret ? 'password' : 'text'}
+                        className="themed-input flex-1 text-xs font-mono"
+                        placeholder={meta.placeholder}
+                        value={editVal}
+                        autoFocus
+                        onChange={e => setEditVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditKey(null); }}
+                      />
+                      <button
+                        className="btn btn-primary rounded-xl px-3 py-1.5 text-xs"
+                        disabled={saving || !editVal.trim()}
+                        onClick={saveEdit}
+                        style={{ opacity: saving || !editVal.trim() ? .6 : 1 }}>
+                        {saving ? <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : '💾'}
+                      </button>
+                      <button
+                        className="btn btn-gray rounded-xl px-3 py-1.5 text-xs"
+                        onClick={() => setEditKey(null)}>
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
 //  SystemToolsTab — Error Log / Session Cleanup / Backup / Bookmarks
 // ════════════════════════════════════════════════════════════
 function SystemToolsTab({ callerUserId }) {
@@ -2022,6 +2230,9 @@ function SystemToolsTab({ callerUserId }) {
             : '🔍 Scan & Cleanup Orphans'}
         </button>
       </div>
+
+      {/* ── Script Properties ────────────────────────────── */}
+      <ScriptPropsPanel callerUserId={callerUserId} />
 
     </div>
   );
