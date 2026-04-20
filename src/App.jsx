@@ -242,10 +242,10 @@ function AppShell() {
   const showNav = SHOW_BOTTOM_NAV.has(screen);
 
   return (
-    <div style={{ background: 'var(--bg)', minHeight: '100vh', paddingBottom: showNav ? 72 : 0 }} className="py-3 px-3 sm:py-6 sm:px-4 lg:px-8">
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', paddingBottom: showNav ? 72 : 0 }} className="py-3 px-3 sm:py-4 sm:px-6 lg:py-5 lg:px-10 xl:px-16">
       <OfflineBanner />
       <BackgroundSync />
-      <div className="max-w-3xl mx-auto w-full">
+      <div className="w-full">
         <Router />
         <footer className="text-center mt-8 text-xs" style={{ color: 'var(--text-muted)' }}>
           © 2025 ระบบข้อสอบออนไลน์
