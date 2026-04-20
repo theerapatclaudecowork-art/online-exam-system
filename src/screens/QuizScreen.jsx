@@ -317,8 +317,9 @@ export default function QuizScreen() {
   }, []);
 
   // ── timer ──────────────────────────────────────────────
-  const warnedRef  = useRef(false);
-  const pausedRef  = useRef(false);
+  const warnedRef   = useRef(false);
+  const warned60Ref = useRef(false);
+  const pausedRef   = useRef(false);
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
@@ -342,6 +343,17 @@ export default function QuizScreen() {
             toast: true, position: 'top-end', timer: 4000,
             showConfirmButton: false, timerProgressBar: true,
             icon: 'warning', title: '⏰ เหลือเวลาอีก 5 นาที!',
+          });
+        }
+
+        if (settings.useTimer && newLeft === 60 && !warned60Ref.current) {
+          warned60Ref.current = true;
+          try { navigator.vibrate?.([300, 100, 300, 100, 300]); } catch (_) {}
+          Swal.fire({
+            toast: true, position: 'top', timer: 5000,
+            showConfirmButton: false, timerProgressBar: true,
+            icon: 'error', title: '⚠️ เหลือเวลาอีก 1 นาที!',
+            background: '#fef2f2',
           });
         }
 
@@ -371,6 +383,7 @@ export default function QuizScreen() {
   // ── timer color ────────────────────────────────────────
   const timerPct = state.totalSec > 0 ? (state.timeLeft / state.totalSec) * 100 : 0;
   const timerCls = timerPct > 50 ? '' : timerPct > 20 ? 'warn' : 'danger';
+  const isLastMinute = settings.useTimer && state.timeLeft > 0 && state.timeLeft <= 60;
 
   // ── helpers ────────────────────────────────────────────
   function selectOpt(i) {
@@ -590,8 +603,11 @@ export default function QuizScreen() {
             <img src={APP_LOGO} alt="logo" className="w-8 h-8 rounded-full object-cover border-2 border-white border-opacity-40" />
             {settings.useTimer && (
               <>
-                <div className={`timer-pill ${timerCls}`} style={paused ? { opacity: .5 } : {}}>
-                  {paused ? '⏸' : '⏱'} {formatTime(timeLeft)}
+                <div className={`timer-pill ${timerCls}`} style={{
+                  ...(paused ? { opacity: .5 } : {}),
+                  ...(isLastMinute && !paused ? { animation: 'pulse 1s infinite', fontWeight: 900 } : {}),
+                }}>
+                  {paused ? '⏸' : isLastMinute ? '🚨' : '⏱'} {formatTime(timeLeft)}
                 </div>
                 <button onClick={togglePause}
                   style={{

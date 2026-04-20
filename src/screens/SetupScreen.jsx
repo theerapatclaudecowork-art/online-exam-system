@@ -177,38 +177,48 @@ export default function SetupScreen() {
   const [totalSets,     setTotalSets]     = useState(0);
   const [doneSets,      setDoneSets]      = useState(0);
   const [myStats,       setMyStats]       = useState(null);
-  const [assignedSets,  setAssignedSets]  = useState([]); // ชุดที่ถูกมอบหมาย
+  const [assignedSets,  setAssignedSets]  = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
-  const [savedQuiz, setSavedQuiz] = useState(null); // { key, lesson, answeredCount, totalCount, savedAt }
+  const [savedQuiz, setSavedQuiz] = useState(null);
+  const [loadError, setLoadError]   = useState(false);   // API ล้มเหลว
+  const [retrying,  setRetrying]    = useState(false);   // กำลัง retry
+
+  const loadData = useCallback(async (isRetry = false) => {
+    if (isRetry) setRetrying(true);
+    setLoadError(false);
+    let anyError = false;
+
+    await Promise.allSettled([
+      apiGetCached('getAnnouncements', {}, 5 * 60_000)
+        .then(d => { if (d.success) setAnnouncements(d.announcements || []); }),
+
+      apiGet('getExamSets', { userId: profile?.userId })
+        .then(d => {
+          if (d.success) {
+            const sets = d.sets || [];
+            setPendingSets(sets.filter(s => s.myAttempts === 0).length);
+            setTotalSets(sets.length);
+            setDoneSets(sets.filter(s => s.myAttempts > 0).length);
+            setAssignedSets(sets.filter(s => s.isAssigned && !s.myPassed));
+          } else { anyError = true; }
+        }).catch(() => { anyError = true; }),
+
+      apiGet('getMyStats', { userId: profile?.userId })
+        .then(d => { if (d.success) setMyStats(d); }),
+
+      apiGet('getHistory', { userId: profile?.userId })
+        .then(d => { if (d.success) setRecentActivity((d.history || []).slice(0, 5)); }),
+    ]);
+
+    if (anyError) setLoadError(true);
+    if (isRetry) setRetrying(false);
+  }, [profile?.userId]);
 
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); setInstallPrompt(e); });
     window.addEventListener('appinstalled', () => { setInstallPrompt(null); setInstalled(true); });
 
-    apiGetCached('getAnnouncements', {}, 5 * 60_000)
-      .then(d => { if (d.success) setAnnouncements(d.announcements || []); })
-      .catch(() => {});
-
-    apiGet('getExamSets', { userId: profile?.userId })
-      .then(d => {
-        if (d.success) {
-          const sets = d.sets || [];
-          setPendingSets(sets.filter(s => s.myAttempts === 0).length);
-          setTotalSets(sets.length);
-          setDoneSets(sets.filter(s => s.myAttempts > 0).length);
-          // ชุดที่ถูกมอบหมายแต่ยังไม่ผ่าน
-          setAssignedSets(sets.filter(s => s.isAssigned && !s.myPassed));
-        }
-      }).catch(() => {});
-
-    apiGet('getMyStats', { userId: profile?.userId })
-      .then(d => { if (d.success) setMyStats(d); })
-      .catch(() => {});
-
-    // Load recent activity (history)
-    apiGet('getHistory', { userId: profile?.userId })
-      .then(d => { if (d.success) setRecentActivity((d.history || []).slice(0, 5)); })
-      .catch(() => {});
+    loadData();
 
     // ตรวจหา saved quiz ใน localStorage
     try {
@@ -293,6 +303,23 @@ export default function SetupScreen() {
 
   return (
     <div className="animate-fade" style={{ paddingBottom: 8, background: 'var(--bg)', minHeight: '100vh' }}>
+
+      {/* ── API Error Banner ──────────────────────────────────── */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 mb-3 text-sm"
+          style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+          <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+          <button
+            onClick={() => loadData(true)}
+            disabled={retrying}
+            className="font-bold text-xs px-3 py-1.5 rounded-xl flex-shrink-0"
+            style={{ background: '#f59e0b', color: 'white', border: 'none', cursor: retrying ? 'not-allowed' : 'pointer', opacity: retrying ? .6 : 1 }}>
+            {retrying
+              ? <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : '🔄 ลองใหม่'}
+          </button>
+        </div>
+      )}
 
       {/* ══ Hero Header — Banking Style ══════════════════════════ */}
       <div style={{

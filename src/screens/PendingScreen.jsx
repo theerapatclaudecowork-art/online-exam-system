@@ -6,9 +6,10 @@ import { FALLBACK_AVATAR } from '../config';
 
 export default function PendingScreen() {
   const { navigate, profile } = useApp();
-  const [status, setStatus]     = useState('pending'); // pending | active | inactive
-  const [polling, setPolling]   = useState(true);
-  const [dots, setDots]         = useState('');
+  const [status, setStatus]       = useState('pending'); // pending | active | inactive
+  const [polling, setPolling]     = useState(true);
+  const [dots, setDots]           = useState('');
+  const [errCount, setErrCount]   = useState(0);  // จำนวนครั้งที่ poll ล้มเหลว
   const intervalRef = useRef(null);
   const dotsRef     = useRef(null);
 
@@ -28,13 +29,18 @@ export default function PendingScreen() {
       if (d.success && d.status === 'active') {
         setStatus('active');
         setPolling(false);
+        setErrCount(0);
         lsDel('exam_init_' + profile.userId);
         setTimeout(() => navigate('auth'), 2000);
       } else if (d.success && d.status === 'inactive') {
         setStatus('inactive');
         setPolling(false);
+      } else {
+        setErrCount(0); // response สำเร็จ reset error
       }
-    } catch (_) {}
+    } catch (_) {
+      setErrCount(c => c + 1);
+    }
   };
   useEffect(() => { check(); /* eslint-disable-next-line */ }, [profile?.userId]);
   useVisibleInterval(polling ? check : null, polling ? 15_000 : null);
@@ -133,22 +139,45 @@ export default function PendingScreen() {
         {/* Pending info */}
         {status === 'pending' && (
           <>
-            {/* Polling indicator */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: 14, borderRadius: 12,
-              background: '#fff', border: '1px dashed #fbbf24',
-              marginBottom: 16,
-            }}>
+            {/* Polling indicator / error */}
+            {errCount >= 3 ? (
               <div style={{
-                width: 10, height: 10, borderRadius: '50%',
-                background: '#f59e0b',
-                animation: 'pulse 1.5s infinite',
-              }} />
-              <span style={{ fontSize: 13, color: '#92400e', fontWeight: 600 }}>
-                กำลังตรวจสอบสถานะ{dots}
-              </span>
-            </div>
+                padding: 14, borderRadius: 12, marginBottom: 16,
+                background: '#fef2f2', border: '1px solid #fca5a5', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 13, color: '#b91c1c', fontWeight: 700, marginBottom: 8 }}>
+                  ❌ ไม่สามารถเชื่อมต่อได้ ({errCount} ครั้ง)
+                </div>
+                <div style={{ fontSize: 12, color: '#991b1b', marginBottom: 12 }}>
+                  ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต แล้วลองใหม่
+                </div>
+                <button
+                  onClick={() => { setErrCount(0); check(); }}
+                  style={{
+                    padding: '8px 20px', borderRadius: 10, border: 'none',
+                    background: '#ef4444', color: '#fff', fontWeight: 700,
+                    fontSize: 13, cursor: 'pointer',
+                  }}>
+                  🔄 ลองใหม่
+                </button>
+              </div>
+            ) : (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                padding: 14, borderRadius: 12,
+                background: '#fff', border: '1px dashed #fbbf24',
+                marginBottom: 16,
+              }}>
+                <div style={{
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: '#f59e0b',
+                  animation: 'pulse 1.5s infinite',
+                }} />
+                <span style={{ fontSize: 13, color: '#92400e', fontWeight: 600 }}>
+                  กำลังตรวจสอบสถานะ{dots}
+                </span>
+              </div>
+            )}
 
             {/* Steps */}
             <div style={{

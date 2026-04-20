@@ -254,9 +254,18 @@ export default function ScoreScreen() {
 
   useEffect(() => {
     function handleOnline() {
+      // sync queued results
       syncOfflineQueue().then(n => {
         if (n > 0) { setSyncCount(n); setSaveQueued(false); }
       }).catch(() => {});
+      // auto-retry LINE message หากส่งไม่ได้ตอน offline
+      setLineStatus(prev => {
+        if (prev === 'err') {
+          setTimeout(() => sendLineMessage(null), 1000);
+          return 'sending';
+        }
+        return prev;
+      });
     }
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
