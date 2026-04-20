@@ -1651,6 +1651,382 @@ function LiveMonitor({ callerUserId }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════
+//  SystemToolsTab — Error Log / Session Cleanup / Backup / Bookmarks
+// ════════════════════════════════════════════════════════════
+function SystemToolsTab({ callerUserId }) {
+  // ── Error Log ──
+  const [errors, setErrors]         = useState([]);
+  const [errLoading, setErrLoading] = useState(false);
+  const [errLimit, setErrLimit]     = useState(50);
+  const [errSeverity, setErrSeverity] = useState('');
+  const [expandedErr, setExpandedErr] = useState(null);
+
+  // ── Session Cleanup ──
+  const [sessResult, setSessResult]   = useState(null);
+  const [sessRunning, setSessRunning] = useState(false);
+  const [sessTrigger, setSessTrigger] = useState(false);
+  const [sessTrigBusy, setSessTrigBusy] = useState(false);
+
+  // ── Backup ──
+  const [backupStatus, setBackupStatus] = useState(null);
+  const [backupRunning, setBackupRunning] = useState(false);
+  const [backupTrigBusy, setBackupTrigBusy] = useState(false);
+
+  // ── Orphan Bookmarks ──
+  const [bmResult, setBmResult]     = useState(null);
+  const [bmRunning, setBmRunning]   = useState(false);
+
+  // ── load error log ──
+  async function loadErrors() {
+    setErrLoading(true);
+    try {
+      const d = await apiGet('getErrorLog', { userId: callerUserId, limit: errLimit });
+      if (d.success) setErrors(d.errors || []);
+      else Swal.fire('ผิดพลาด', d.message, 'error');
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setErrLoading(false); }
+  }
+
+  // ── load backup status ──
+  async function loadBackupStatus() {
+    try {
+      const d = await apiGet('getBackupStatus', { userId: callerUserId });
+      if (d.success) {
+        setBackupStatus(d);
+        setSessTrigger(false); // reset
+      }
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    loadErrors();
+    loadBackupStatus();
+  }, []);
+
+  // ── run session cleanup ──
+  async function runSessionCleanup() {
+    setSessRunning(true);
+    setSessResult(null);
+    try {
+      const d = await apiPost({ action: 'cleanupStaleSessions', callerUserId });
+      if (d.success) setSessResult(d);
+      else Swal.fire('ผิดพลาด', d.message, 'error');
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setSessRunning(false); }
+  }
+
+  // ── setup session cleanup trigger ──
+  async function setupSessionTrigger() {
+    setSessTrigBusy(true);
+    try {
+      const d = await apiPost({ action: 'setupSessionCleanupTrigger', callerUserId });
+      if (d.success) {
+        Swal.fire({ icon: 'success', title: 'ตั้ง Trigger สำเร็จ', text: d.message, timer: 2500, showConfirmButton: false });
+        setSessTrigger(true);
+      } else {
+        Swal.fire('ผิดพลาด', d.message, 'error');
+      }
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setSessTrigBusy(false); }
+  }
+
+  // ── run backup now ──
+  async function runBackupNow() {
+    const r = await Swal.fire({
+      title: 'Backup ทันที?',
+      text: 'จะสร้าง copy ของ Spreadsheet ไปยัง Google Drive',
+      icon: 'question', showCancelButton: true,
+      confirmButtonText: 'ทำเลย', cancelButtonText: 'ยกเลิก',
+    });
+    if (!r.isConfirmed) return;
+    setBackupRunning(true);
+    try {
+      const d = await apiPost({ action: 'runBackupNow', callerUserId }, 30000);
+      if (d.success) {
+        Swal.fire({ icon: 'success', title: 'Backup สำเร็จ', text: `ไฟล์: ${d.name || d.backupId}`, timer: 3000, showConfirmButton: false });
+        await loadBackupStatus();
+      } else {
+        Swal.fire('ผิดพลาด', d.message || 'Backup ล้มเหลว', 'error');
+      }
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setBackupRunning(false); }
+  }
+
+  // ── toggle backup trigger ──
+  async function toggleBackupTrigger() {
+    const hasTrigger = backupStatus && backupStatus.triggerCount > 0;
+    setBackupTrigBusy(true);
+    try {
+      const action = hasTrigger ? 'removeBackupTrigger' : 'setupBackupTrigger';
+      const d = await apiPost({ action, callerUserId });
+      if (d.success) {
+        Swal.fire({ icon: 'success', title: hasTrigger ? 'ลบ Trigger แล้ว' : 'ตั้ง Trigger สำเร็จ', text: d.message || '', timer: 2000, showConfirmButton: false });
+        await loadBackupStatus();
+      } else {
+        Swal.fire('ผิดพลาด', d.message, 'error');
+      }
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setBackupTrigBusy(false); }
+  }
+
+  // ── run orphan bookmark cleanup ──
+  async function runBookmarkCleanup() {
+    setBmRunning(true);
+    setBmResult(null);
+    try {
+      const d = await apiPost({ action: 'cleanupOrphanBookmarks', callerUserId });
+      if (d.success) setBmResult(d);
+      else Swal.fire('ผิดพลาด', d.message, 'error');
+    } catch (e) { Swal.fire('ผิดพลาด', e.message, 'error'); }
+    finally { setBmRunning(false); }
+  }
+
+  const displayedErrors = errSeverity
+    ? errors.filter(e => e.severity === errSeverity)
+    : errors;
+
+  const SEV_COLORS = {
+    error:   { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' },
+    warning: { bg: '#fffbeb', color: '#92400e', border: '#fde68a' },
+    info:    { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' },
+  };
+
+  return (
+    <div className="animate-fade space-y-4">
+
+      {/* ── Error Log ─────────────────────────────────── */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>📋 Error Log</div>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {errors.length} รายการล่าสุด
+            </div>
+          </div>
+          <div className="flex gap-2 items-center">
+            <select
+              className="themed-input text-xs py-1 rounded-lg"
+              style={{ minWidth: 90 }}
+              value={errSeverity}
+              onChange={e => setErrSeverity(e.target.value)}>
+              <option value="">ทั้งหมด</option>
+              <option value="error">error</option>
+              <option value="warning">warning</option>
+              <option value="info">info</option>
+            </select>
+            <select
+              className="themed-input text-xs py-1 rounded-lg"
+              style={{ minWidth: 70 }}
+              value={errLimit}
+              onChange={e => { setErrLimit(Number(e.target.value)); }}>
+              {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button
+              className="btn btn-gray text-xs rounded-lg px-3 py-1.5"
+              onClick={loadErrors}
+              disabled={errLoading}>
+              {errLoading ? <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : '🔄'}
+            </button>
+          </div>
+        </div>
+
+        {errLoading && !errors.length ? (
+          <div className="py-6 text-center text-xs" style={{ color: 'var(--text-muted)' }}>กำลังโหลด...</div>
+        ) : displayedErrors.length === 0 ? (
+          <div className="py-6 text-center text-xs" style={{ color: 'var(--text-muted)' }}>✅ ไม่มี Error ในระบบ</div>
+        ) : (
+          <div className="space-y-1.5" style={{ maxHeight: 420, overflowY: 'auto' }}>
+            {displayedErrors.map((err, i) => {
+              const c = SEV_COLORS[err.severity] || SEV_COLORS.error;
+              const isOpen = expandedErr === i;
+              return (
+                <div key={i}
+                  className="rounded-xl cursor-pointer"
+                  style={{ background: c.bg, border: `1px solid ${c.border}` }}
+                  onClick={() => setExpandedErr(isOpen ? null : i)}>
+                  <div className="flex items-start gap-2 px-3 py-2">
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
+                      style={{ background: c.border, color: c.color }}>
+                      {err.severity}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold truncate" style={{ color: c.color }}>
+                        {err.message || '(no message)'}
+                      </div>
+                      <div className="flex gap-3 mt-0.5">
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{err.timestamp}</span>
+                        {err.source && <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{err.source}</span>}
+                        {err.userId && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>👤 {err.userId.slice(0, 8)}…</span>}
+                      </div>
+                    </div>
+                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-muted)' }}>{isOpen ? '▲' : '▼'}</span>
+                  </div>
+                  {isOpen && (err.stack || err.context || err.action) && (
+                    <div className="px-3 pb-3 space-y-1">
+                      {err.action && <div className="text-xs"><b>action:</b> <span className="font-mono">{err.action}</span></div>}
+                      {err.context && <div className="text-xs break-all"><b>context:</b> {err.context}</div>}
+                      {err.stack && (
+                        <details>
+                          <summary className="text-xs cursor-pointer font-semibold" style={{ color: c.color }}>stack trace</summary>
+                          <pre className="text-xs mt-1 overflow-auto" style={{ maxHeight: 140, whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: c.color }}>{err.stack}</pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Session Cleanup ───────────────────────────── */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="font-bold text-sm mb-1" style={{ color: 'var(--text)' }}>🧹 Session Cleanup</div>
+        <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          ลบ session records ที่หมดอายุออกจาก _Sessions sheet (SESSION_MAX_HOURS, default 24h)
+        </div>
+
+        {sessResult && (
+          <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold"
+            style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#15803d' }}>
+            ✅ ลบแล้ว {sessResult.deleted} rows (cutoff {sessResult.cutoffHours}h)
+          </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <button
+            className="btn btn-primary rounded-xl px-4 py-2 text-sm flex-1"
+            style={{ background: '#0891b2', opacity: sessRunning ? .6 : 1 }}
+            disabled={sessRunning}
+            onClick={runSessionCleanup}>
+            {sessRunning
+              ? <><span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />กำลังล้าง...</>
+              : '🗑 Run Cleanup Now'}
+          </button>
+          <button
+            className="btn rounded-xl px-4 py-2 text-sm"
+            style={{
+              background: sessTrigger ? '#dcfce7' : 'var(--input-bg)',
+              color: sessTrigger ? '#15803d' : 'var(--text)',
+              border: `1px solid ${sessTrigger ? '#86efac' : 'var(--input-border)'}`,
+              opacity: sessTrigBusy ? .6 : 1,
+            }}
+            disabled={sessTrigBusy}
+            onClick={setupSessionTrigger}>
+            {sessTrigBusy
+              ? <><span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-1.5" />กำลังตั้ง...</>
+              : sessTrigger ? '✅ Trigger ตั้งแล้ว' : '⏱ ตั้ง Hourly Trigger'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Google Drive Backup ───────────────────────── */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="font-bold text-sm mb-1" style={{ color: 'var(--text)' }}>💾 Google Drive Backup</div>
+        <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          สำรองข้อมูล Spreadsheet ไปยัง Google Drive (ตั้ง BACKUP_FOLDER_ID ใน Script Properties)
+        </div>
+
+        {backupStatus && (
+          <div className="rounded-xl p-3 mb-3 text-xs space-y-1.5"
+            style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+            <div className="flex justify-between">
+              <span style={{ color: 'var(--text-muted)' }}>Folder</span>
+              <span className="font-mono font-semibold" style={{ color: 'var(--text)' }}>
+                {backupStatus.folderId}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'var(--text-muted)' }}>Retain</span>
+              <span className="font-semibold" style={{ color: 'var(--text)' }}>{backupStatus.retainDays} วัน</span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'var(--text-muted)' }}>Auto Trigger</span>
+              <span className="font-semibold" style={{ color: backupStatus.triggerCount > 0 ? '#16a34a' : '#9ca3af' }}>
+                {backupStatus.triggerCount > 0 ? `✅ ${backupStatus.triggerCount} trigger` : 'ยังไม่ได้ตั้ง'}
+              </span>
+            </div>
+            {backupStatus.recentBackups && backupStatus.recentBackups.length > 0 && (
+              <div>
+                <div className="font-semibold mb-1 mt-2" style={{ color: 'var(--text)' }}>ไฟล์ล่าสุด</div>
+                <div className="space-y-1">
+                  {backupStatus.recentBackups.slice(0, 5).map((f, i) => (
+                    <div key={i} className="flex justify-between gap-2">
+                      <span className="truncate font-mono" style={{ color: 'var(--text)', maxWidth: '65%' }}>{f.name}</span>
+                      <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {new Date(f.created).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <button
+            className="btn btn-primary rounded-xl px-4 py-2 text-sm flex-1"
+            style={{ background: '#7c3aed', opacity: backupRunning ? .6 : 1 }}
+            disabled={backupRunning}
+            onClick={runBackupNow}>
+            {backupRunning
+              ? <><span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />กำลัง Backup...</>
+              : '☁️ Backup Now'}
+          </button>
+          <button
+            className="btn rounded-xl px-4 py-2 text-sm"
+            style={{
+              background: backupStatus?.triggerCount > 0 ? '#fee2e2' : '#f0fdf4',
+              color: backupStatus?.triggerCount > 0 ? '#b91c1c' : '#15803d',
+              border: `1px solid ${backupStatus?.triggerCount > 0 ? '#fecaca' : '#bbf7d0'}`,
+              opacity: backupTrigBusy ? .6 : 1,
+            }}
+            disabled={backupTrigBusy}
+            onClick={toggleBackupTrigger}>
+            {backupTrigBusy
+              ? <><span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-1.5" />...</>
+              : backupStatus?.triggerCount > 0 ? '🗑 ลบ Auto Trigger' : '⏱ ตั้ง Daily Trigger'}
+          </button>
+          <button
+            className="btn btn-gray rounded-xl px-3 py-2 text-sm"
+            onClick={loadBackupStatus}>
+            🔄
+          </button>
+        </div>
+      </div>
+
+      {/* ── Orphan Bookmarks Cleanup ───────────────────── */}
+      <div className="quiz-card no-hover rounded-2xl p-4">
+        <div className="font-bold text-sm mb-1" style={{ color: 'var(--text)' }}>🔖 Orphan Bookmarks Cleanup</div>
+        <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          ลบ bookmarks ที่ชี้ไปยังข้อสอบที่ถูกลบแล้วออกจาก Bookmarks sheet
+        </div>
+
+        {bmResult && (
+          <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold"
+            style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#15803d' }}>
+            ✅ ลบ orphans {bmResult.deleted} รายการ (จาก {bmResult.scanned} ที่สแกน)
+          </div>
+        )}
+
+        <button
+          className="btn btn-primary rounded-xl px-4 py-2 text-sm w-full"
+          style={{ background: '#d97706', opacity: bmRunning ? .6 : 1 }}
+          disabled={bmRunning}
+          onClick={runBookmarkCleanup}>
+          {bmRunning
+            ? <><span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />กำลังสแกน...</>
+            : '🔍 Scan & Cleanup Orphans'}
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 //  AdminScreen (Main)
 // ─────────────────────────────────────────────────────────────
@@ -2331,6 +2707,7 @@ function AdminScreenInner() {
     { key: 'subjects',    label: '📖 รายวิชา' },
     { key: 'analytics',   label: '🔬 วิเคราะห์' },
     { key: 'health',      label: '🩺 ระบบ' },
+    { key: 'system',      label: '🛡 System Tools' },
     { key: 'settings',    label: '⚙️ ตั้งค่า' },
   ];
 
@@ -4063,7 +4440,10 @@ function AdminScreenInner() {
         </div>
       )}
 
-      {/* ── Settings Tab ────────────────────��─────────────── */}
+      {/* ── System Tools Tab ──────────────────────────────── */}
+      {tab === 'system' && <SystemToolsTab callerUserId={profile.userId} />}
+
+      {/* ── Settings Tab ────────────────────────────────── */}
       {/* ════════════════════════ TAB: หน่วยงาน ════════════════════════ */}
       {tab === 'dept' && <DeptTab callerUserId={profile.userId} />}
 
