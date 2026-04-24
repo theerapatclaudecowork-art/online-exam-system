@@ -929,20 +929,44 @@ function ExamReminderSection({ callerUserId }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  TabErrorBanner — shared error + retry banner for admin tabs
+// ─────────────────────────────────────────────────────────────
+function TabErrorBanner({ onRetry, loading }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 mb-3 text-sm"
+      style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+      <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+      <button onClick={onRetry} disabled={loading}
+        className="font-bold text-xs px-3 py-1.5 rounded-xl flex-shrink-0"
+        style={{ background: '#f59e0b', color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? .6 : 1 }}>
+        {loading
+          ? <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          : '🔄 ลองใหม่'}
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 //  QStatsTab — ข้อสอบที่ตอบผิดบ่อย
 // ─────────────────────────────────────────────────────────────
 function QStatsTab({ callerUserId }) {
-  const [stats,   setStats]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState('');
-  const [filter,  setFilter]  = useState('all'); // all | hard | easy
+  const [stats,    setStats]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [search,   setSearch]   = useState('');
+  const [filter,   setFilter]   = useState('all'); // all | hard | easy
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
+    setHasError(false);
     apiGet('getQuestionStats', { userId: callerUserId })
       .then(d => { if (d.success) setStats(d.stats || []); })
-      .catch(() => {})
+      .catch(() => setHasError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <Spinner label="กำลังวิเคราะห์ข้อสอบ..." />;
 
@@ -956,6 +980,7 @@ function QStatsTab({ callerUserId }) {
 
   return (
     <div className="animate-fade space-y-4">
+      {hasError && <TabErrorBanner onRetry={load} loading={loading} />}
       {/* Summary */}
       <div className="quiz-card no-hover rounded-2xl p-4">
         <h3 className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📉 สถิติข้อสอบ</h3>
@@ -1036,20 +1061,25 @@ function QStatsTab({ callerUserId }) {
 //  DeptTab — แยก component เพื่อไม่ละเมิด Rules of Hooks
 // ─────────────────────────────────────────────────────────────
 function DeptTab({ callerUserId }) {
-  const [deptData, setDeptData] = useState(null);
-  const [deptLoad, setDeptLoad] = useState(true);
-  const [editId,   setEditId]   = useState(null);
-  const [editDept, setEditDept] = useState('');
-  const [saving,   setSaving]   = useState(false);
-  const [openDept, setOpenDept] = useState(null); // accordion: ชื่อ dept ที่เปิดอยู่
-  const [search,   setSearch]   = useState('');
+  const [deptData,  setDeptData]  = useState(null);
+  const [deptLoad,  setDeptLoad]  = useState(true);
+  const [deptError, setDeptError] = useState(false);
+  const [editId,    setEditId]    = useState(null);
+  const [editDept,  setEditDept]  = useState('');
+  const [saving,    setSaving]    = useState(false);
+  const [openDept,  setOpenDept]  = useState(null); // accordion: ชื่อ dept ที่เปิดอยู่
+  const [search,    setSearch]    = useState('');
 
-  useEffect(() => {
+  function loadDept() {
+    setDeptLoad(true);
+    setDeptError(false);
     apiGet('getDepartments', { userId: callerUserId })
       .then(d => { if (d.success) setDeptData(d); })
-      .catch(() => {})
+      .catch(() => setDeptError(true))
       .finally(() => setDeptLoad(false));
-  }, []);
+  }
+
+  useEffect(() => { loadDept(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveDept(lineUserId) {
     setSaving(lineUserId);
@@ -1103,6 +1133,7 @@ function DeptTab({ callerUserId }) {
 
   return (
     <div className="animate-fade space-y-3">
+      {deptError && <TabErrorBanner onRetry={loadDept} loading={deptLoad} />}
 
       {/* Header summary */}
       <div className="quiz-card no-hover rounded-2xl p-4">
@@ -1114,12 +1145,7 @@ function DeptTab({ callerUserId }) {
             </div>
           </div>
           <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5"
-            onClick={() => {
-              setDeptLoad(true);
-              apiGet('getDepartments', { userId: callerUserId })
-                .then(d => { if (d.success) setDeptData(d); })
-                .catch(() => {}).finally(() => setDeptLoad(false));
-            }}>🔄 รีเฟรช</button>
+            onClick={loadDept}>🔄 รีเฟรช</button>
         </div>
 
         {/* Search */}
@@ -1276,20 +1302,22 @@ function DeptTab({ callerUserId }) {
 //  #7 DeptResultsTab — ผลสอบรายหน่วยงาน
 // ════════════════════════════════════════════════════════════
 function DeptResultsTab({ callerUserId }) {
-  const [depts, setDepts]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy]   = useState('attempts'); // attempts | passRate | avgScore
+  const [depts,    setDepts]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [sortBy,   setSortBy]   = useState('attempts'); // attempts | passRate | avgScore
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await apiGet('getResultsByDept', { userId: callerUserId });
-        if (data.success) setDepts(data.depts || []);
-      } catch (_) {}
-      finally { setLoading(false); }
-    })();
-  }, [callerUserId]);
+  async function loadDeptResults() {
+    setLoading(true);
+    setHasError(false);
+    try {
+      const data = await apiGet('getResultsByDept', { userId: callerUserId });
+      if (data.success) setDepts(data.depts || []);
+    } catch (_) { setHasError(true); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadDeptResults(); }, [callerUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <Spinner label="กำลังโหลดข้อมูลหน่วยงาน..." />;
 
@@ -1301,6 +1329,7 @@ function DeptResultsTab({ callerUserId }) {
 
   return (
     <div className="animate-fade space-y-3">
+      {hasError && <TabErrorBanner onRetry={loadDeptResults} loading={loading} />}
       <div className="quiz-card no-hover rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1309,13 +1338,8 @@ function DeptResultsTab({ callerUserId }) {
               ผลสอบรายหน่วยงาน ({depts.length} หน่วยงาน)
             </span>
           </div>
-          <button className="btn btn-gray text-xs rounded-lg px-2 py-1" onClick={() => {
-            setLoading(true);
-            apiGet('getResultsByDept', { userId: callerUserId })
-              .then(d => { if (d.success) setDepts(d.depts || []); })
-              .catch(() => {})
-              .finally(() => setLoading(false));
-          }}>🔄</button>
+          <button className="btn btn-gray text-xs rounded-lg px-2 py-1"
+            onClick={loadDeptResults}>🔄</button>
         </div>
 
         {/* Sort buttons */}
@@ -1379,21 +1403,23 @@ function DeptResultsTab({ callerUserId }) {
 //  #8 FlagsTab — รายงานข้อสอบผิดพลาด
 // ════════════════════════════════════════════════════════════
 function FlagsTab({ callerUserId }) {
-  const [flags, setFlags]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [resolving, setResolving] = useState(null);
-  const [filterStatus, setFilter] = useState('pending');
+  const [flags,        setFlags]       = useState([]);
+  const [loading,      setLoading]     = useState(true);
+  const [hasError,     setHasError]    = useState(false);
+  const [resolving,    setResolving]   = useState(null);
+  const [filterStatus, setFilter]      = useState('pending');
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await apiGet('getFlags', { userId: callerUserId });
-        if (data.success) setFlags(data.flags || []);
-      } catch (_) {}
-      finally { setLoading(false); }
-    })();
-  }, [callerUserId]);
+  async function loadFlags() {
+    setLoading(true);
+    setHasError(false);
+    try {
+      const data = await apiGet('getFlags', { userId: callerUserId });
+      if (data.success) setFlags(data.flags || []);
+    } catch (_) { setHasError(true); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadFlags(); }, [callerUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleResolve(flag, status) {
     setResolving(flag.flagId);
@@ -1403,8 +1429,11 @@ function FlagsTab({ callerUserId }) {
         setFlags(prev => prev.map(f => f.flagId === flag.flagId ? { ...f, status } : f));
         Swal.fire({ toast: true, position: 'top', timer: 2000, showConfirmButton: false, icon: 'success',
           title: status === 'resolved' ? '✅ แก้ไขแล้ว' : '🗑 ยกเลิกแล้ว' });
-      }
-    } catch (_) {}
+      } else throw new Error(data.message || 'ไม่สำเร็จ');
+    } catch (e) {
+      Swal.fire({ toast: true, position: 'top', timer: 3000, showConfirmButton: false, icon: 'error',
+        title: `❌ เกิดข้อผิดพลาด: ${e.message}` });
+    }
     finally { setResolving(null); }
   }
 
@@ -1428,6 +1457,7 @@ function FlagsTab({ callerUserId }) {
 
   return (
     <div className="animate-fade space-y-3">
+      {hasError && <TabErrorBanner onRetry={loadFlags} loading={loading} />}
       <div className="quiz-card no-hover rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1442,12 +1472,8 @@ function FlagsTab({ callerUserId }) {
               )}
             </span>
           </div>
-          <button className="btn btn-gray text-xs rounded-lg px-2 py-1" onClick={() => {
-            setLoading(true);
-            apiGet('getFlags', { userId: callerUserId })
-              .then(d => { if (d.success) setFlags(d.flags || []); })
-              .catch(() => {}).finally(() => setLoading(false));
-          }}>🔄</button>
+          <button className="btn btn-gray text-xs rounded-lg px-2 py-1"
+            onClick={loadFlags}>🔄</button>
         </div>
 
         {/* Filter buttons */}
@@ -2251,6 +2277,13 @@ function AdminScreenInner() {
   const [resultTotal, setResultTotal] = useState(0);
   const [resultPage, setResultPage]   = useState(0);
   const [loading, setLoading]         = useState(false);
+  const [membersError, setMembersError] = useState(false);
+  const [initError, setInitError]     = useState(false);
+  const [statsError, setStatsError]   = useState(false);
+  const [resultsError, setResultsError] = useState(false);
+  const [healthError, setHealthError] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(false);
+  const [assignError, setAssignError] = useState(false);
   const [syncing, setSyncing]         = useState(false);
   // Telegram config
   const [tgConfig, setTgConfig]       = useState(null);
@@ -2336,6 +2369,7 @@ function AdminScreenInner() {
 
   // batch: stats + trigger + rmSync + tg  (1 GAS call)
   async function loadInitAdmin() {
+    setInitError(false);
     try {
       const data = await apiGet('initAdmin', { userId: profile.userId });
       if (!data.success) return;
@@ -2347,14 +2381,15 @@ function AdminScreenInner() {
       }
       if (data.rmSync)  setRmSyncStatus(data.rmSync);
       if (data.tg)      setTgConfig(data.tg);
-    } catch (_) {}
+    } catch (_) { setInitError(true); }
   }
 
   async function loadStats() {
+    setStatsError(false);
     try {
       const data = await apiGet('getAdminStats', { userId: profile.userId });
       if (data.success) setStats(data);
-    } catch (_) {}
+    } catch (_) { setStatsError(true); }
   }
 
   // poll pending messages count ทุก 30 วินาที (หยุดเมื่อ tab ไม่ active)
@@ -2369,12 +2404,13 @@ function AdminScreenInner() {
 
   async function loadMembers() {
     setLoading(true);
+    setMembersError(false);
     try {
       const data = await apiGet('getMembersWithProfiles', { userId: profile.userId });
       if (!data.success) return;
       setMembers(data.members || []);
       if (data.lastSyncTime) setLastSyncTime(toThaiDateTime(data.lastSyncTime));
-    } catch (_) {}
+    } catch (_) { setMembersError(true); }
     finally { setLoading(false); }
   }
 
@@ -2390,10 +2426,11 @@ function AdminScreenInner() {
 
   async function loadResults(page = 0) {
     setLoading(true);
+    setResultsError(false);
     try {
       const data = await apiGet('getAllResults', { userId: profile.userId, page });
       if (data.success) { setResults(data.results || []); setResultTotal(data.total || 0); setResultPage(page); }
-    } catch (_) {}
+    } catch (_) { setResultsError(true); }
     finally { setLoading(false); }
   }
 
@@ -2500,10 +2537,11 @@ function AdminScreenInner() {
   // ── System Health ─────────────────────────────────
   async function loadHealth() {
     setHealthLoading(true);
+    setHealthError(false);
     try {
       const data = await apiGet('getSystemHealth', { userId: profile.userId });
       if (data.success) setHealthData(data);
-    } catch (_) {}
+    } catch (_) { setHealthError(true); }
     finally { setHealthLoading(false); }
   }
 
@@ -2570,10 +2608,11 @@ function AdminScreenInner() {
 
   // ── Individual Analytics ──────────────────────────────
   async function loadAnalyticsMembers() {
+    setAnalyticsError(false);
     try {
       const data = await apiGet('getMembers', { userId: profile.userId });
       if (data.success) setAnalyticsMembers(data.members || []);
-    } catch (_) {}
+    } catch (_) { setAnalyticsError(true); }
   }
 
   async function loadIndividualAnalytics(targetUserId) {
@@ -2628,10 +2667,11 @@ function AdminScreenInner() {
   // ── Assignment Overview ───────────────────────────────
   async function loadAssignOverview() {
     setAssignLoading(true);
+    setAssignError(false);
     try {
       const data = await apiGet('getAdminAssignmentOverview', { userId: profile.userId });
       if (data.success) setAssignOverview(data);
-    } catch (_) {}
+    } catch (_) { setAssignError(true); }
     finally { setAssignLoading(false); }
   }
 
@@ -2641,7 +2681,10 @@ function AdminScreenInner() {
     try {
       const data = await apiGet('getAssignmentTracking', { userId: profile.userId, setId });
       if (data.success) setAssignDetail(data);
-    } catch (_) {}
+      else Swal.fire({ toast: true, position: 'top', timer: 3000, showConfirmButton: false, icon: 'error', title: data.message || 'โหลดข้อมูลไม่สำเร็จ' });
+    } catch (e) {
+      Swal.fire({ toast: true, position: 'top', timer: 3000, showConfirmButton: false, icon: 'error', title: `❌ ${e.message}` });
+    }
     finally { setAssignDetailLoading(false); }
   }
 
@@ -3075,7 +3118,11 @@ function AdminScreenInner() {
 
       {/* ── Stats Tab ─────────────────────────────── */}
       {tab === 'stats' && (
-        <StatsCharts stats={stats} loading={!stats && loading} onRefresh={loadStats} />
+        <>
+          {initError && <TabErrorBanner onRetry={loadInitAdmin} loading={false} />}
+          {statsError && <TabErrorBanner onRetry={loadStats} loading={!stats && loading} />}
+          <StatsCharts stats={stats} loading={!stats && loading} onRefresh={loadStats} />
+        </>
       )}
 
       {/* ── AI Generator Tab ─────────────────────────── */}
@@ -3137,6 +3184,7 @@ function AdminScreenInner() {
       {/* ── Assignments Tab ───────────────────────────── */}
       {tab === 'assignments' && (
         <div className="animate-fade">
+          {assignError && <TabErrorBanner onRetry={loadAssignOverview} loading={assignLoading} />}
           {assignDetail ? (
             /* ── Detail View ── */
             <div>
@@ -3270,6 +3318,7 @@ function AdminScreenInner() {
       {/* ── Members Tab ───────────────────────────── */}
       {tab === 'members' && (
         <div className="animate-fade">
+          {membersError && <TabErrorBanner onRetry={loadMembers} loading={loading} />}
 
           {/* Filter / Search / Sync bar */}
           <div className="quiz-card no-hover rounded-2xl p-3 mb-3 space-y-2">
@@ -4086,6 +4135,7 @@ function AdminScreenInner() {
       {/* ── Results Tab ───────────────────────────── */}
       {tab === 'results' && (
         <div className="animate-fade">
+          {resultsError && <TabErrorBanner onRetry={() => loadResults(resultPage)} loading={loading} />}
           <div className="quiz-card no-hover rounded-2xl p-2 sm:p-3 mb-3 flex gap-2">
             <div className="relative flex-1">
               <input className="themed-input w-full pr-16" placeholder="🔍 ค้นหาชื่อ / วิชา / หน่วยงาน..."
@@ -4181,6 +4231,7 @@ function AdminScreenInner() {
       {/* ── Analytics Tab ────────────────────────────────── */}
       {tab === 'analytics' && (
         <div className="animate-fade space-y-4">
+          {analyticsError && <TabErrorBanner onRetry={loadAnalyticsMembers} loading={false} />}
           {/* Header */}
           <div className="quiz-card no-hover rounded-2xl p-4">
             <h2 className="font-bold text-base mb-1" style={{ color: 'var(--text)' }}>🔬 วิเคราะห์รายบุคคล (Individual Analytics)</h2>
@@ -4509,6 +4560,7 @@ function AdminScreenInner() {
       {/* ── System Health Tab ─────────────────────────────── */}
       {tab === 'health' && (
         <div className="animate-fade">
+          {healthError && <TabErrorBanner onRetry={loadHealth} loading={healthLoading} />}
           {healthLoading ? <Spinner label="กำลังตรวจสอบระบบ..." /> : !healthData ? (
             <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>ไม่พบข้อมูล</div>
           ) : (
