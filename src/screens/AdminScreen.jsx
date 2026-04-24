@@ -1400,6 +1400,391 @@ function DeptResultsTab({ callerUserId }) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  DeptAnalyticsTab — วิเคราะห์เชิงลึกรายหน่วยงาน
+// ════════════════════════════════════════════════════════════
+const TREND_CONF = {
+  improving: { icon: '📈', label: 'กำลังพัฒนา', bg: '#f0fdf4', color: '#15803d', border: '#86efac' },
+  stable:    { icon: '➡️', label: 'คงที่',       bg: '#f8fafc', color: '#475569', border: '#e2e8f0' },
+  declining: { icon: '📉', label: 'ลดลง',        bg: '#fef2f2', color: '#b91c1c', border: '#fca5a5' },
+};
+
+function DeptAnalyticsTab({ callerUserId }) {
+  const [data,      setData]      = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [hasError,  setHasError]  = useState(false);
+  const [selected,  setSelected]  = useState(null);   // dept object ที่เลือกดู detail
+  const [sortKey,   setSortKey]   = useState('attempts');
+  const [comparing, setComparing] = useState([]);     // รายชื่อ dept ที่เลือก compare (max 4)
+
+  async function load() {
+    setLoading(true); setHasError(false);
+    try {
+      const d = await apiGet('getDeptAnalytics', { userId: callerUserId });
+      if (d.success) setData(d);
+    } catch (_) { setHasError(true); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) return <Spinner label="กำลังวิเคราะห์หน่วยงาน..." />;
+
+  const depts   = data?.depts   || [];
+  const overall = data?.overall || {};
+
+  // ── sorting ──
+  const sorted = [...depts].sort((a, b) => {
+    if (sortKey === 'passRate')      return b.passRate - a.passRate;
+    if (sortKey === 'avgScore')      return b.avgScore - a.avgScore;
+    if (sortKey === 'participation') return b.participation - a.participation;
+    if (sortKey === 'zScore')        return b.zScore - a.zScore;
+    return b.attempts - a.attempts;
+  });
+
+  // ── toggle compare selection ──
+  function toggleCompare(dept) {
+    setComparing(prev => {
+      if (prev.includes(dept)) return prev.filter(d => d !== dept);
+      if (prev.length >= 4) return prev;
+      return [...prev, dept];
+    });
+  }
+
+  // ── helpers ──
+  const zColor = z => z > 0.5 ? '#15803d' : z < -0.5 ? '#b91c1c' : '#475569';
+  const zBg    = z => z > 0.5 ? '#f0fdf4' : z < -0.5 ? '#fef2f2' : '#f8fafc';
+
+  // ─── DETAIL VIEW ─────────────────────────────────────────────
+  if (selected) {
+    const d = selected;
+    const tc = TREND_CONF[d.trend] || TREND_CONF.stable;
+    const maxMonthly = Math.max(...(d.monthlyProgress||[]).map(m => m.attempts), 1);
+    const maxSubjAtt = Math.max(...(d.subjectStats||[]).map(s => s.attempts), 1);
+    return (
+      <div className="animate-fade space-y-4">
+        {/* Back */}
+        <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5"
+          onClick={() => setSelected(null)}>← กลับภาพรวม</button>
+
+        {/* Header */}
+        <div className="quiz-card no-hover rounded-2xl p-4"
+          style={{ background: `linear-gradient(135deg,#1e3a5f 0%,#1e40af 100%)` }}>
+          <div className="flex items-center gap-3">
+            <div style={{ fontSize: 40 }}>🏢</div>
+            <div>
+              <div className="text-lg font-black" style={{ color: '#fff' }}>{d.dept}</div>
+              <div className="text-xs" style={{ color: '#93c5fd' }}>
+                {d.memberCount} สมาชิก • เข้าสอบ {d.activeParticipants} คน ({d.participation}%)
+              </div>
+            </div>
+            <div className="ml-auto px-3 py-1.5 rounded-xl text-xs font-bold"
+              style={{ background: tc.bg, color: tc.color, border: `1px solid ${tc.border}` }}>
+              {tc.icon} {tc.label}
+            </div>
+          </div>
+        </div>
+
+        {/* Descriptive Stats */}
+        <div className="quiz-card no-hover rounded-2xl p-4">
+          <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📊 สถิติเชิงพรรณนา</div>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[
+              { label: 'N (ครั้งสอบ)',   value: d.attempts,    color: 'var(--accent)' },
+              { label: 'Mean (เฉลี่ย)',   value: d.avgScore+'%', color: '#3b82f6' },
+              { label: 'Median',          value: d.median+'%',  color: '#8b5cf6' },
+              { label: 'S.D.',            value: d.stdDev,      color: '#f59e0b' },
+              { label: 'สูงสุด',          value: d.bestScore+'%', color: '#16a34a' },
+              { label: 'ต่ำสุด',          value: d.worstScore+'%', color: '#ef4444' },
+              { label: 'Q1',              value: d.q1,          color: '#06b6d4' },
+              { label: 'Q3',              value: d.q3,          color: '#06b6d4' },
+              { label: 'IQR',             value: d.iqr,         color: '#d97706' },
+            ].map(item => (
+              <div key={item.label} className="rounded-xl p-2.5 text-center"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                <div className="text-lg font-black" style={{ color: item.color }}>{item.value}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 9 }}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl p-2.5 text-center" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <div className="text-xl font-black" style={{ color: '#1d4ed8' }}>{d.passRate}%</div>
+              <div className="text-xs font-semibold" style={{ color: '#3b82f6' }}>Pass Rate</div>
+              <div className="text-xs" style={{ color: '#60a5fa' }}>ผ่าน {d.pass} / ไม่ผ่าน {d.fail}</div>
+            </div>
+            <div className="rounded-xl p-2.5 text-center" style={{ background: zBg(d.zScore), border: '1px solid var(--input-border)' }}>
+              <div className="text-xl font-black" style={{ color: zColor(d.zScore) }}>{d.zScore > 0 ? '+' : ''}{d.zScore}</div>
+              <div className="text-xs font-semibold" style={{ color: zColor(d.zScore) }}>Z-Score</div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>เทียบกับค่าเฉลี่ยรวม</div>
+            </div>
+            <div className="rounded-xl p-2.5 text-center" style={{ background: tc.bg, border: `1px solid ${tc.border}` }}>
+              <div style={{ fontSize: 24 }}>{tc.icon}</div>
+              <div className="text-xs font-semibold" style={{ color: tc.color }}>{tc.label}</div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>slope {d.slope > 0 ? '+' : ''}{d.slope}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Score Distribution */}
+        {(d.scoreDistribution||[]).length > 0 && (
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📊 การกระจายคะแนน</div>
+            <div className="space-y-2">
+              {d.scoreDistribution.map(bin => {
+                const pct = d.attempts > 0 ? Math.round(bin.count/d.attempts*100) : 0;
+                const barColor = bin.range.startsWith('8')||bin.range.startsWith('6') ? '#16a34a'
+                  : bin.range.startsWith('4') ? '#f59e0b' : '#ef4444';
+                return (
+                  <div key={bin.range} className="flex items-center gap-2">
+                    <span className="text-xs font-mono w-14 flex-shrink-0" style={{ color: 'var(--text-muted)' }}>{bin.range}%</span>
+                    <div className="flex-1 h-5 rounded-full overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                      <div style={{ width: pct+'%', height: '100%', background: barColor, borderRadius: 999, transition: 'width .5s', minWidth: bin.count > 0 ? 4 : 0 }} />
+                    </div>
+                    <span className="text-xs font-bold w-12 text-right flex-shrink-0" style={{ color: 'var(--text)' }}>
+                      {bin.count} ({pct}%)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Subject Breakdown */}
+        {(d.subjectStats||[]).length > 0 && (
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📚 รายวิชา</div>
+            <div className="space-y-2">
+              {d.subjectStats.map(s => (
+                <div key={s.subject} className="rounded-xl p-3" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-semibold truncate flex-1" style={{ color: 'var(--text)' }}>{s.subject}</span>
+                    <div className="flex gap-3 text-xs flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                      <span>📝 {s.attempts} ครั้ง</span>
+                      <span className="font-bold" style={{ color: s.passRate >= 60 ? '#16a34a' : '#ef4444' }}>{s.passRate}%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                      <div style={{ width: Math.min(s.avgScore,100)+'%', height:'100%', borderRadius:999,
+                        background: s.avgScore >= 70 ? '#22c55e' : s.avgScore >= 50 ? '#f59e0b' : '#ef4444' }} />
+                    </div>
+                    <span className="text-xs font-bold flex-shrink-0" style={{ color: 'var(--text-muted)' }}>{s.avgScore}%</span>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    {[...Array(Math.min(s.attempts, maxSubjAtt > 0 ? Math.ceil(s.attempts/maxSubjAtt*10) : 1))].map((_,i) => (
+                      <div key={i} style={{ width:6, height:6, borderRadius:'50%', background:'var(--accent)', opacity:.4+i*.06 }} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Monthly Progress */}
+        {(d.monthlyProgress||[]).length > 1 && (
+          <div className="quiz-card no-hover rounded-2xl p-4">
+            <div className="font-bold text-sm mb-3" style={{ color: 'var(--text)' }}>📅 แนวโน้มรายเดือน</div>
+            <div className="space-y-2">
+              {d.monthlyProgress.slice(-12).map(m => (
+                <div key={m.month} className="flex items-center gap-2">
+                  <span className="text-xs font-mono w-16 flex-shrink-0" style={{ color: 'var(--text-muted)' }}>{m.month}</span>
+                  <div className="flex-1 h-5 rounded-full overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                    <div style={{ width: Math.round(m.attempts/maxMonthly*100)+'%', height:'100%',
+                      background: m.passRate >= 60 ? '#3b82f6' : '#f59e0b', borderRadius:999, transition:'width .5s', minWidth:4 }} />
+                  </div>
+                  <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-muted)', minWidth:80, textAlign:'right' }}>
+                    {m.attempts} ครั้ง • {m.passRate}% ผ่าน
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── COMPARE VIEW ─────────────────────────────────────────────
+  const cmpDepts = depts.filter(d => comparing.includes(d.dept));
+  const METRICS = [
+    { key: 'attempts',     label: 'ครั้งสอบ',          max: Math.max(...depts.map(d=>d.attempts),1),      color:'#3b82f6', fmt: v => v },
+    { key: 'passRate',     label: '% ผ่าน',             max: 100,                                           color:'#16a34a', fmt: v => v+'%' },
+    { key: 'avgScore',     label: 'คะแนนเฉลี่ย',        max: 100,                                           color:'#8b5cf6', fmt: v => v+'%' },
+    { key: 'stdDev',       label: 'S.D. (ความสม่ำเสมอ)', max: Math.max(...depts.map(d=>d.stdDev),1),       color:'#f59e0b', fmt: v => v, inverse: true },
+    { key: 'participation',label: '% เข้าสอบ',          max: 100,                                           color:'#06b6d4', fmt: v => v+'%' },
+  ];
+  const DEPT_COLORS = ['#3b82f6','#8b5cf6','#16a34a','#f59e0b'];
+
+  // ─── OVERVIEW ─────────────────────────────────────────────────
+  return (
+    <div className="animate-fade space-y-4">
+      {hasError && <TabErrorBanner onRetry={load} loading={loading} />}
+
+      {/* Overall banner */}
+      <div className="quiz-card no-hover rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#1e3a5f 0%,#1e40af 100%)' }}>
+        <div className="text-xs font-bold mb-2" style={{ color: '#93c5fd' }}>ภาพรวมทั้งองค์กร</div>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: 'ทั้งหมด (ครั้ง)',  val: overall.attempts,                          color: '#fff' },
+            { label: 'เฉลี่ยรวม',        val: (overall.avgScore||0)+'%',                 color: '#93c5fd' },
+            { label: 'Pass Rate รวม',    val: (overall.passRate||0)+'%',                 color: '#86efac' },
+            { label: 'หน่วยงาน',         val: depts.length,                              color: '#fde68a' },
+          ].map(i => (
+            <div key={i.label} className="text-center">
+              <div className="text-xl font-black" style={{ color: i.color }}>{i.val}</div>
+              <div className="text-xs" style={{ color: '#64748b', fontSize: 10 }}>{i.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Sort buttons */}
+      <div className="quiz-card no-hover rounded-2xl p-3">
+        <div className="text-xs font-bold mb-2" style={{ color: 'var(--text-muted)' }}>เรียงตาม</div>
+        <div className="flex gap-1.5 flex-wrap">
+          {[
+            { k: 'attempts',      label: 'ครั้งสอบ' },
+            { k: 'passRate',      label: '% ผ่าน' },
+            { k: 'avgScore',      label: 'คะแนนเฉลี่ย' },
+            { k: 'participation', label: '% เข้าสอบ' },
+            { k: 'zScore',        label: 'Z-Score' },
+          ].map(o => (
+            <button key={o.k} onClick={() => setSortKey(o.k)}
+              className="text-xs rounded-lg px-2.5 py-1.5 font-semibold"
+              style={{
+                background: sortKey===o.k ? 'var(--accent)' : 'var(--input-bg)',
+                color:      sortKey===o.k ? 'white'         : 'var(--text-muted)',
+                border:     `1px solid ${sortKey===o.k ? 'transparent' : 'var(--input-border)'}`,
+              }}>
+              {o.label}
+            </button>
+          ))}
+          <button className="text-xs rounded-lg px-2.5 py-1.5 font-semibold ml-auto"
+            onClick={load}
+            style={{ background:'var(--input-bg)', color:'var(--text-muted)', border:'1px solid var(--input-border)' }}>
+            🔄
+          </button>
+        </div>
+      </div>
+
+      {/* Compare selected */}
+      {comparing.length >= 2 && (
+        <div className="quiz-card no-hover rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>
+              🆚 เปรียบเทียบ {comparing.length} หน่วยงาน
+            </div>
+            <button className="text-xs rounded-lg px-2.5 py-1 btn btn-gray"
+              onClick={() => setComparing([])}>ล้าง</button>
+          </div>
+          {METRICS.map(m => {
+            const vals = cmpDepts.map(d => d[m.key]||0);
+            const bestVal = m.inverse ? Math.min(...vals) : Math.max(...vals);
+            return (
+              <div key={m.key} className="mb-3">
+                <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>{m.label}</div>
+                <div className="space-y-1">
+                  {cmpDepts.map((d, ci) => {
+                    const v = d[m.key]||0;
+                    const barPct = m.inverse
+                      ? Math.max(0, Math.round((1 - v/m.max)*100))
+                      : Math.round(v/m.max*100);
+                    const isBest = m.inverse ? v === bestVal : v === bestVal;
+                    return (
+                      <div key={d.dept} className="flex items-center gap-2">
+                        <span className="text-xs w-28 truncate flex-shrink-0" style={{ color: DEPT_COLORS[ci] }}>{d.dept}</span>
+                        <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                          <div style={{ width: barPct+'%', height:'100%', background: DEPT_COLORS[ci], borderRadius:999, opacity:.85 }} />
+                        </div>
+                        <span className="text-xs font-bold flex-shrink-0 w-14 text-right" style={{ color: isBest ? m.color : 'var(--text-muted)' }}>
+                          {m.fmt(v)} {isBest ? '🏆' : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Department cards */}
+      <div className="space-y-2">
+        {comparing.length < 2 && (
+          <div className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
+            💡 เลือก 2–4 หน่วยงาน เพื่อเปรียบเทียบกัน | กด ▶ เพื่อดูรายละเอียด
+          </div>
+        )}
+        {sorted.map(d => {
+          const tc = TREND_CONF[d.trend] || TREND_CONF.stable;
+          const isSel = comparing.includes(d.dept);
+          return (
+            <div key={d.dept} className="quiz-card no-hover rounded-2xl p-3"
+              style={{ border: isSel ? '2px solid var(--accent)' : '1px solid var(--card-border)' }}>
+              {/* Row 1: name + badges */}
+              <div className="flex items-center gap-2 mb-2">
+                <button
+                  className="flex-1 flex items-center gap-2 text-left"
+                  onClick={() => toggleCompare(d.dept)}>
+                  <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                    style={{ background: isSel ? 'var(--accent)' : 'var(--input-bg)', border: `1.5px solid ${isSel ? 'var(--accent)' : 'var(--input-border)'}` }}>
+                    {isSel && <span style={{ color:'white', fontSize:11 }}>✓</span>}
+                  </div>
+                  <span className="font-bold text-sm truncate" style={{ color: 'var(--text)' }}>{d.dept}</span>
+                </button>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold flex-shrink-0"
+                  style={{ background: tc.bg, color: tc.color, border: `1px solid ${tc.border}` }}>
+                  {tc.icon} {tc.label}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{ background: zBg(d.zScore), color: zColor(d.zScore) }}>
+                  Z: {d.zScore > 0 ? '+' : ''}{d.zScore}
+                </span>
+                <button className="btn btn-gray text-xs rounded-lg px-2 py-1 flex-shrink-0"
+                  onClick={() => setSelected(d)}>▶</button>
+              </div>
+              {/* Row 2: key metrics */}
+              <div className="grid grid-cols-5 gap-1.5 text-center mb-2">
+                {[
+                  { label: 'สมาชิก',  val: d.memberCount,    color: 'var(--text)' },
+                  { label: 'ครั้งสอบ', val: d.attempts,       color: '#3b82f6' },
+                  { label: '% ผ่าน',  val: d.passRate+'%',   color: d.passRate >= 60 ? '#16a34a' : '#ef4444' },
+                  { label: 'เฉลี่ย',   val: d.avgScore+'%',   color: '#8b5cf6' },
+                  { label: '% เข้าสอบ',val: d.participation+'%', color: '#f59e0b' },
+                ].map(item => (
+                  <div key={item.label} className="rounded-lg py-1.5"
+                    style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)' }}>
+                    <div className="text-sm font-black" style={{ color: item.color }}>{item.val}</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 9 }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Row 3: pass rate bar vs overall */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--progress-trk)' }}>
+                  <div style={{ width: d.passRate+'%', height:'100%', borderRadius:999,
+                    background: d.passRate >= (overall.passRate||0) ? '#16a34a' : '#f59e0b', transition:'width .5s' }} />
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color:'var(--text-muted)', fontSize:10 }}>
+                  เฉลี่ยรวม {overall.passRate||0}%
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        {sorted.length === 0 && (
+          <div className="quiz-card no-hover rounded-2xl p-8 text-center" style={{ color: 'var(--text-muted)' }}>
+            ยังไม่มีข้อมูลการสอบ
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
 //  #8 FlagsTab — รายงานข้อสอบผิดพลาด
 // ════════════════════════════════════════════════════════════
 function FlagsTab({ callerUserId }) {
@@ -2949,7 +3334,8 @@ function AdminScreenInner() {
     { key: 'stats',       label: '📊 สถิติ' },
     { key: 'members',     label: '👥 สมาชิก' },
     { key: 'dept',        label: '🏢 หน่วยงาน' },
-    { key: 'deptResults', label: '📈 ผลหน่วยงาน' },
+    { key: 'deptResults',    label: '📈 ผลหน่วยงาน' },
+    { key: 'deptAnalytics',  label: '🏢🔬 วิเคราะห์หน่วยงาน' },
     { key: 'qstats',      label: '📉 ข้อยาก' },
     { key: 'flags',       label: `🚩 Flags` },
     { key: 'ai',          label: '🤖 AI สร้างข้อสอบ' },
@@ -4711,7 +5097,8 @@ function AdminScreenInner() {
       {tab === 'dept' && <DeptTab callerUserId={profile.userId} />}
 
       {/* ════════════════════════ TAB: ผลสอบรายหน่วยงาน ════════════════════════ */}
-      {tab === 'deptResults' && <DeptResultsTab callerUserId={profile.userId} />}
+      {tab === 'deptResults'   && <DeptResultsTab   callerUserId={profile.userId} />}
+      {tab === 'deptAnalytics' && <DeptAnalyticsTab callerUserId={profile.userId} />}
 
       {/* ════════════════════════ TAB: ข้อยาก ════════════════════════ */}
       {tab === 'qstats' && <QStatsTab callerUserId={profile.userId} />}
