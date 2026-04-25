@@ -52,20 +52,41 @@ function RankCard({ entry, isMe }) {
 
 // ── Group Leaderboard Component ───────────────────────────────
 function GroupBoard({ profile }) {
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [hasError, setHasError] = useState(false);
 
-  useEffect(() => {
-    apiGet('getGroupLeaderboard', { userId: profile?.userId })
-      .then(d => { if (d.success) setData(d); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  async function load() {
+    setLoading(true);
+    setHasError(false);
+    try {
+      const d = await apiGet('getGroupLeaderboard', { userId: profile?.userId });
+      if (d.success) setData(d);
+    } catch (_) {
+      setHasError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
 
   if (loading) return (
     <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
       <div className="spinner" style={{ margin: '0 auto 12px' }} />
       กำลังโหลดอันดับหน่วยงาน...
+    </div>
+  );
+
+  if (hasError) return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
+      style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+      <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+      <button onClick={load}
+        className="flex-shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold"
+        style={{ background: '#f59e0b', color: 'white' }}>
+        🔄 ลองใหม่
+      </button>
     </div>
   );
 
@@ -154,18 +175,23 @@ const PERIODS = [
 
 export default function LeaderboardScreen() {
   const { navigate, profile } = useApp();
-  const [tab, setTab]         = useState('personal');
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [period, setPeriod]   = useState('all');
+  const [tab, setTab]           = useState('personal');
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [period, setPeriod]     = useState('all');
+  const [hasError, setHasError] = useState(false);
 
   async function loadBoard(p) {
     setLoading(true);
+    setHasError(false);
     try {
       const res = await apiGet('getLeaderboard', { userId: profile?.userId, period: p || period });
       if (res.success) setData(res);
-    } catch (_) {}
-    finally { setLoading(false); }
+    } catch (_) {
+      setHasError(true);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { loadBoard('all'); }, []);
@@ -247,12 +273,24 @@ export default function LeaderboardScreen() {
       {/* Personal Tab */}
       {tab === 'personal' && (
         <>
-          {board.length === 0 ? (
+          {hasError && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
+              style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+              <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+              <button onClick={() => loadBoard(period)} disabled={loading}
+                className="flex-shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold"
+                style={{ background: '#f59e0b', color: 'white', opacity: loading ? .6 : 1 }}>
+                🔄 ลองใหม่
+              </button>
+            </div>
+          )}
+          {!hasError && board.length === 0 && (
             <div className="quiz-card no-hover rounded-2xl p-10 text-center" style={{ color: 'var(--text-muted)' }}>
               <div className="text-4xl mb-2">🏆</div>
               <div>ยังไม่มีข้อมูล — เริ่มสอบเพื่อขึ้นอันดับ!</div>
             </div>
-          ) : (
+          )}
+          {!hasError && board.length > 0 && (
             <div className="quiz-card no-hover rounded-2xl p-4">
               <div className="text-xs font-semibold mb-3" style={{ color: 'var(--text-muted)' }}>
                 Top {board.length} ผู้สอบผ่านมากที่สุด

@@ -5,11 +5,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:ghpages": "VITE_BASE_PATH=/online-exam-system/ vite build",
     "preview": "vite preview",
     "gas:push": "cp Code.gs gas/Code.gs && cd gas && clasp push --force",
     "gas:deploy": "npm run gas:push && cd gas && clasp deploy --description \"v$(node -p \"require('./package.json').version\")\"",
     "gas:open": "cd gas && clasp open",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run build:ghpages && gh-pages -d dist"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.3",

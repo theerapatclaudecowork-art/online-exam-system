@@ -20,16 +20,22 @@ export default function MyStatsScreen() {
   const { navigate, profile } = useApp();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiGet('getMyStats', { userId: profile?.userId });
-        if (res.success) setData(res);
-      } catch (_) {}
-      finally { setLoading(false); }
-    })();
-  }, []);
+  async function load() {
+    setLoading(true);
+    setHasError(false);
+    try {
+      const res = await apiGet('getMyStats', { userId: profile?.userId });
+      if (res.success) setData(res);
+    } catch (_) {
+      setHasError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
 
   if (loading) return <Spinner label="กำลังโหลดสถิติ..." />;
 
@@ -38,6 +44,28 @@ export default function MyStatsScreen() {
   const wq = data?.weakQuestions || [];
   const weak = ss.filter(x => x.passRate < 60);
   const good = ss.filter(x => x.passRate >= 80);
+
+  if (hasError && !data) {
+    return (
+      <div className="animate-fade space-y-4">
+        <div className="quiz-card no-hover rounded-2xl p-4">
+          <div className="flex items-center justify-between">
+            <h1 className="font-bold text-base sm:text-lg" style={{ color: 'var(--text)' }}>📊 สถิติของฉัน</h1>
+            <button className="btn btn-gray text-xs rounded-lg px-3 py-1.5" onClick={() => navigate('setup')}>← กลับ</button>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
+          style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+          <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+          <button onClick={load} disabled={loading}
+            className="flex-shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold"
+            style={{ background: '#f59e0b', color: 'white', opacity: loading ? .6 : 1 }}>
+            🔄 ลองใหม่
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Empty state — ยังไม่มีข้อมูล
   if (!data || !s.totalAttempts) {

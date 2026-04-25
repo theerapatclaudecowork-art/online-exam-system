@@ -288,8 +288,9 @@ export default function SetupScreen() {
     { icon: '📈', label: 'สถิติฉัน',  screen: 'myStats',     color: '#3b82f6' },
     { icon: '🏆', label: 'อันดับ',    screen: 'leaderboard', color: '#d97706' },
     { icon: '👤', label: 'โปรไฟล์',  screen: 'profile',     color: '#8b5cf6' },
-    { icon: '🔖', label: 'บุ๊กมาร์ก', screen: 'bookmark',    color: '#06b6d4' },
-    { icon: '🎓', label: 'ใบประกาศ', screen: 'certificate', color: '#16a34a' },
+    { icon: '🔖', label: 'บุ๊กมาร์ก', screen: 'bookmark',        color: '#06b6d4' },
+    { icon: '🎓', label: 'ใบประกาศ', screen: 'certificate',      color: '#16a34a' },
+    { icon: '💬', label: 'ข้อความ',  screen: 'myConversation',   color: '#ec4899' },
   ];
   if (isAdmin)   QUICK_ITEMS.push({ icon: '⚙️', label: 'Admin',  screen: 'admin',   color: '#ef4444' });
   if (isTeacher) QUICK_ITEMS.push(

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/online-exam-system/',
+  base: process.env.VITE_BASE_PATH || '/',
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 800,

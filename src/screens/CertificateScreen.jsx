@@ -13,31 +13,54 @@ function formatThaiDate(dateStr) {
 
 export default function CertificateScreen() {
   const { navigate, profile } = useApp();
-  const [stats,   setStats]   = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selExam, setSelExam] = useState(null); // ชุดสอบที่เลือกแสดงใบ
+  const [stats,    setStats]    = useState(null);
+  const [history,  setHistory]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [selExam,  setSelExam]  = useState(null);
   const certRef = useRef(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [s, h] = await Promise.all([
-          apiGet('getMyStats',  { userId: profile?.userId }),
-          apiGet('getHistory',  { userId: profile?.userId, page: 1, size: 50 }),
-        ]);
-        if (s.success) setStats(s.summary);
-        if (h.success) {
-          const passed = (h.history || []).filter(x => x.pass === 'ผ่าน');
-          setHistory(passed);
-          if (passed.length > 0) setSelExam(passed[0]);
-        }
-      } catch (_) {}
-      finally { setLoading(false); }
-    })();
-  }, []);
+  async function load() {
+    setLoading(true);
+    setHasError(false);
+    try {
+      const [s, h] = await Promise.all([
+        apiGet('getMyStats',  { userId: profile?.userId }),
+        apiGet('getHistory',  { userId: profile?.userId, page: 1, size: 50 }),
+      ]);
+      if (s.success) setStats(s.summary);
+      if (h.success) {
+        const passed = (h.history || []).filter(x => x.pass === 'ผ่าน');
+        setHistory(passed);
+        if (passed.length > 0) setSelExam(passed[0]);
+      }
+    } catch (_) {
+      setHasError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
 
   if (loading) return <Spinner label="กำลังโหลด..." />;
+
+  if (hasError) {
+    return (
+      <div className="animate-fade space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
+          style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+          <span>⚠️ โหลดข้อมูลไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ</span>
+          <button onClick={load} disabled={loading}
+            className="flex-shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold"
+            style={{ background: '#f59e0b', color: 'white', opacity: loading ? .6 : 1 }}>
+            🔄 ลองใหม่
+          </button>
+        </div>
+        <button className="btn btn-gray w-full rounded-xl py-3" onClick={() => navigate('myStats')}>← กลับ</button>
+      </div>
+    );
+  }
 
   if (history.length === 0) {
     return (
@@ -162,7 +185,9 @@ export default function CertificateScreen() {
                 type: 'text',
                 text: `🎓 ฉันผ่านการสอบวิชา "${exam?.lesson}" ด้วยคะแนน ${pct}% ✅`,
               }]);
-            } catch (_) {}
+            } catch (_) {
+              alert('ไม่สามารถแชร์ได้ — กรุณาลองใหม่อีกครั้ง');
+            }
           } else {
             alert('กรุณาเปิดผ่านแอป LINE เพื่อแชร์');
           }

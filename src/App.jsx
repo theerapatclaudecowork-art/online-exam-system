@@ -35,6 +35,7 @@ const TeacherScreen           = lazy(() => import('./screens/TeacherScreen'));
 const PendingScreen           = lazy(() => import('./screens/PendingScreen'));
 const LessonScreen            = lazy(() => import('./screens/LessonScreen'));
 const LessonDetailScreen      = lazy(() => import('./screens/LessonDetailScreen'));
+const MyConversationScreen    = lazy(() => import('./screens/MyConversationScreen'));
 
 // Screens where we hide the floating dark-mode toggle (full-screen quiz)
 const HIDE_TOGGLE_SCREENS = new Set(['auth', 'register', 'loading-quiz']);
@@ -104,6 +105,7 @@ function Router() {
     pending:            <PendingScreen />,
     lessons:            <LessonScreen />,
     lessonDetail:       <LessonDetailScreen />,
+    myConversation:     <MyConversationScreen />,
   };
 
   return (
